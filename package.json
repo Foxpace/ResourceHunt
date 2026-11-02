@@ -1,0 +1,34 @@
+{
+  "name": "resource-hunt",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --import tsx src/server.ts --watch",
+    "start": "node --import tsx src/server.ts",
+    "play": "node --import tsx src/cli.ts play",
+    "bench": "node --import tsx src/cli.ts bench",
+    "bots": "node --import tsx src/cli.ts bots",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "yarn format:check && yarn typecheck && yarn test",
+    "build": "node --import tsx src/build.ts"
+  },
+  "devDependencies": {
+    "prettier": "3.9.10",
+    "typescript": "^5.9.0",
+    "@types/node": "^22.18.0"
+  },
+  "packageManager": "yarn@1.22.22",
+  "engines": {
+    "node": ">=22.18.0",
+    "yarn": ">=1.22.22"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.0",
+    "tsx": "^4.20.0"
+  }
+}

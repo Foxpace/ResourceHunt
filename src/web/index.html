@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101614" />
+    <meta name="description" content="Run and compare resource-hunting bots." />
+    <title>Resource hunt</title>
+    <link rel="icon" href="/favicon.png" type="image/png" />
+    <link rel="stylesheet" href="./style.css" />
+    <script type="module" src="./app.ts"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="brand" href="/">Resource hunt</a>
+      <nav aria-label="Match tools">
+        <button class="text-button" id="import" aria-label="Import replay">Import</button>
+        <button class="text-button" id="export" aria-label="Export replay" disabled>Export</button>
+        <button class="text-button" id="rules-button">Rules</button>
+      </nav>
+      <input id="replay-file" type="file" accept="application/json,.json" hidden />
+    </header>
+    <main class="workspace">
+      <aside class="setup panel" aria-label="Match settings">
+        <form id="config-form">
+          <label class="field-label" for="biome">Map</label>
+          <select id="biome" aria-describedby="biome-description"></select>
+          <p class="biome-description" id="biome-description"></p>
+          <label class="field-label" for="seed"
+            >Seed
+            <button id="shuffle" type="button" aria-label="Randomize seed" title="Randomize seed">
+              ↻
+            </button>
+          </label>
+          <input
+            id="seed"
+            name="seed"
+            value="resource-hunt"
+            maxlength="200"
+            required
+            spellcheck="false"
+          />
+          <div class="form-row">
+            <label
+              >Width<input id="width" type="number" min="13" max="81" value="33" required
+            /></label>
+            <label
+              >Height<input id="height" type="number" min="13" max="81" value="25" required
+            /></label>
+            <label
+              >Ticks<input id="ticks" type="number" min="1" max="10000" value="300" required
+            /></label>
+          </div>
+          <details class="advanced">
+            <summary>Advanced</summary>
+            <div class="advanced-fields">
+              <label class="field-label" for="layout">Bases</label>
+              <select id="layout">
+                <option value="edges">Edges</option>
+                <option value="center">Center</option>
+              </select>
+              <label class="range-label" for="resources"
+                >Resources <output id="resources-value">13%</output></label
+              >
+              <input id="resources" type="range" min="0" max="40" value="13" />
+              <label class="range-label" for="terrain"
+                >Roughness <output id="terrain-value">28%</output></label
+              >
+              <input id="terrain" type="range" min="0" max="65" value="28" />
+              <div class="form-row">
+                <label
+                  >Capacity<input id="capacity" type="number" min="3" max="100" value="8" required
+                /></label>
+                <label
+                  >Timeout, ms<input
+                    id="timeout"
+                    type="number"
+                    min="10"
+                    max="5000"
+                    value="100"
+                    required
+                /></label>
+              </div>
+              <div class="form-row">
+                <label
+                  >Hotspots<input id="hotspots" type="number" min="0" max="6" value="2" required
+                /></label>
+                <label
+                  >Outposts<input id="outposts" type="number" min="0" max="6" value="2" required
+                /></label>
+              </div>
+              <div class="form-row">
+                <label
+                  >Capture turns<input
+                    id="capture-turns"
+                    type="number"
+                    min="1"
+                    max="20"
+                    value="3"
+                    required
+                /></label>
+                <label
+                  >Theft cooldown<input
+                    id="steal-cooldown"
+                    type="number"
+                    min="1"
+                    max="100"
+                    value="5"
+                    required
+                /></label>
+              </div>
+              <label class="toggle-label"
+                ><input id="stealing" type="checkbox" checked /> Cargo theft</label
+              >
+            </div>
+          </details>
+          <div class="bot-heading">
+            <span>Bots <span id="selected-count">0/15</span></span>
+            <button
+              class="text-button"
+              id="refresh-bots"
+              type="button"
+              aria-label="Refresh bots"
+              title="Refresh bots"
+            >
+              ↻
+            </button>
+          </div>
+          <div id="bot-list" class="bot-list"><p class="muted">Loading…</p></div>
+          <button class="primary create-button" id="generate" type="submit">Generate</button>
+        </form>
+      </aside>
+      <section class="arena-column" aria-label="Match">
+        <div class="arena panel">
+          <div class="transport">
+            <button class="primary" id="play" disabled>Run</button>
+            <button class="secondary" id="step" disabled>Step</button>
+            <select id="speed" aria-label="Playback speed">
+              <option value="2">2 ticks/s</option>
+              <option value="8" selected>8 ticks/s</option>
+              <option value="24">24 ticks/s</option>
+              <option value="1000">Max</option>
+            </select>
+            <span id="playback-mode" class="replay-badge" hidden>Replay</span>
+            <span id="tick-label" class="tick-label" aria-label="Tick">0 / 300</span>
+          </div>
+          <section class="scores" aria-label="Scores"><div id="standings"></div></section>
+          <div class="map-container" id="map-container">
+            <canvas id="map" aria-label="Resource hunt map" role="img"></canvas>
+            <div class="map-tooltip" id="map-tooltip" hidden></div>
+            <div class="map-empty" id="map-empty">Loading…</div>
+          </div>
+          <div class="timeline">
+            <input
+              id="timeline"
+              type="range"
+              min="0"
+              max="0"
+              value="0"
+              aria-label="Replay tick"
+              disabled
+            />
+          </div>
+        </div>
+        <details class="activity panel">
+          <summary>Activity</summary>
+          <div id="event-log" aria-live="polite"></div>
+        </details>
+      </section>
+    </main>
+    <div class="toast" id="toast" role="alert" hidden></div>
+    <dialog id="rules" aria-labelledby="rules-title">
+      <button class="dialog-close text-button" id="close-rules" aria-label="Close rules">×</button>
+      <h2 id="rules-title">Rules</h2>
+      <p>
+        One action per turn. Bank resources at your base or owned outposts to score. Highest score
+        wins.
+      </p>
+      <dl>
+        <dt>Move</dt>
+        <dd>One tile north, west, east, or south.</dd>
+        <dt>Grab</dt>
+        <dd>Collect one resource if it fits.</dd>
+        <dt>Home</dt>
+        <dd>One step toward your nearest owned bank.</dd>
+        <dt>Capture</dt>
+        <dd>Claim an outpost with consecutive uncontested turns.</dd>
+        <dt>Steal</dt>
+        <dd>Take one fitting item from a bot on your tile. Bases are safe.</dd>
+        <dt>Skip</dt>
+        <dd>Wait one turn.</dd>
+      </dl>
+      <p id="competition-rules">Capture: 3 turns. Theft cooldown: 5 ticks.</p>
+      <p>
+        Gold outlines mark finite resource hotspots. Flags mark outposts; their color shows
+        ownership.
+      </p>
+      <p>
+        Terrain costs 1–3 turns. Water, cliffs, lava, and thickets block movement. Hover a tile for
+        its cost.
+      </p>
+      <table>
+        <caption>
+          Resources
+        </caption>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Value</th>
+            <th>Weight</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th><span class="ore">●</span> Ore</th>
+            <td>2</td>
+            <td>1</td>
+          </tr>
+          <tr>
+            <th><span class="crystal">◆</span> Crystal</th>
+            <td>7</td>
+            <td>2</td>
+          </tr>
+          <tr>
+            <th><span class="relic">✦</span> Relic</th>
+            <td>14</td>
+            <td>3</td>
+          </tr>
+        </tbody>
+      </table>
+    </dialog>
+  </body>
+</html>
