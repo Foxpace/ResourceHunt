@@ -5,14 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#101614" />
     <meta name="description" content="Run and compare resource-hunting bots." />
-    <title>Resource hunt</title>
+    <title>Resource Hunt</title>
     <link rel="icon" href="/favicon.png" type="image/png" />
     <link rel="stylesheet" href="./style.css" />
     <script type="module" src="./app.ts"></script>
   </head>
   <body>
     <header class="app-header">
-      <a class="brand" href="/">Resource hunt</a>
+      <a class="brand" href="/"
+        ><span class="brand-mark" aria-hidden="true">◈</span> Resource Hunt
+        <small>FRONTIER</small></a
+      >
       <nav aria-label="Match tools">
         <button class="text-button" id="import" aria-label="Import replay">Import</button>
         <button class="text-button" id="export" aria-label="Export replay" disabled>Export</button>
@@ -100,6 +103,15 @@
                     required
                 /></label>
                 <label
+                  >Depot immunity<input
+                    id="capture-immunity"
+                    type="number"
+                    min="0"
+                    max="20"
+                    value="3"
+                    required
+                /></label>
+                <label
                   >Theft cooldown<input
                     id="steal-cooldown"
                     type="number"
@@ -112,10 +124,36 @@
               <label class="toggle-label"
                 ><input id="stealing" type="checkbox" checked /> Cargo theft</label
               >
+              <fieldset class="world-settings">
+                <legend>Competitive world</legend>
+                <label class="toggle-label"
+                  ><input id="sabotage" type="checkbox" checked /> Depot sabotage</label
+                >
+                <label class="toggle-label"
+                  ><input id="cargo-traps" type="checkbox" checked /> Cargo traps</label
+                >
+                <label class="toggle-label"
+                  ><input id="natural-events" type="checkbox" checked /> Natural events</label
+                >
+                <div class="form-row">
+                  <label
+                    >Drones<input id="scavengers" type="number" min="0" max="6" value="2" required
+                  /></label>
+                  <label
+                    >Guarded hotspots<input
+                      id="guardians"
+                      type="number"
+                      min="0"
+                      max="6"
+                      value="2"
+                      required
+                  /></label>
+                </div>
+              </fieldset>
             </div>
           </details>
           <div class="bot-heading">
-            <span>Bots <span id="selected-count">0/15</span></span>
+            <span>Bots <span id="selected-count" aria-live="polite">0/15</span></span>
             <button
               class="text-button"
               id="refresh-bots"
@@ -126,46 +164,171 @@
               ↻
             </button>
           </div>
+          <p class="lineup-hint">Choose copies per strategy. Up to 15 participants.</p>
           <div id="bot-list" class="bot-list"><p class="muted">Loading…</p></div>
+          <details class="advanced">
+            <summary>Results and tournament options</summary>
+            <div class="advanced-fields">
+              <label class="field-label" for="tournament-win-target"
+                >Wins needed to end tournament</label
+              >
+              <input id="tournament-win-target" type="number" min="1" max="10" value="3" required />
+              <div class="form-row">
+                <label
+                  >Standout badges<input
+                    id="standout-badges"
+                    type="number"
+                    min="0"
+                    max="30"
+                    value="3"
+                    required
+                /></label>
+                <label
+                  >Random badges<input
+                    id="random-badges"
+                    type="number"
+                    min="0"
+                    max="30"
+                    value="5"
+                    required
+                /></label>
+              </div>
+              <fieldset>
+                <legend>Statistics columns</legend>
+                <div id="result-columns" class="result-column-options"></div>
+              </fieldset>
+            </div>
+          </details>
           <button class="primary create-button" id="generate" type="submit">Generate</button>
+          <button
+            class="secondary create-button tournament-button"
+            id="run-tournament"
+            type="submit"
+            disabled
+          >
+            Run tournament
+          </button>
         </form>
       </aside>
-      <section class="arena-column" aria-label="Match">
-        <div class="arena panel">
-          <div class="transport">
-            <button class="primary" id="play" disabled>Run</button>
-            <button class="secondary" id="step" disabled>Step</button>
-            <select id="speed" aria-label="Playback speed">
-              <option value="2">2 ticks/s</option>
-              <option value="8" selected>8 ticks/s</option>
-              <option value="24">24 ticks/s</option>
-              <option value="1000">Max</option>
-            </select>
-            <span id="playback-mode" class="replay-badge" hidden>Replay</span>
-            <span id="tick-label" class="tick-label" aria-label="Tick">0 / 300</span>
+      <section class="arena-column" aria-label="Competition">
+        <nav class="competition-tabs" aria-label="Competition views">
+          <button
+            class="secondary"
+            id="tab-arena"
+            type="button"
+            aria-controls="panel-arena"
+            aria-pressed="true"
+          >
+            Arena
+          </button>
+          <button
+            class="secondary"
+            id="tab-results"
+            type="button"
+            aria-controls="panel-results"
+            aria-pressed="false"
+          >
+            Results
+          </button>
+          <button
+            class="secondary"
+            id="tab-tournament"
+            type="button"
+            aria-controls="panel-tournament"
+            aria-pressed="false"
+          >
+            Tournament
+          </button>
+        </nav>
+        <div id="panel-arena">
+          <div class="arena panel">
+            <div class="arena-heading">
+              <span class="eyebrow">LIVE ARENA</span
+              ><span class="arena-subtitle">Gather. Disrupt. Survive.</span>
+            </div>
+            <div class="transport">
+              <button class="primary" id="play" disabled>Run</button>
+              <button class="secondary" id="step" disabled>Step</button>
+              <select id="speed" aria-label="Playback speed">
+                <option value="2">2 ticks/s</option>
+                <option value="8" selected>8 ticks/s</option>
+                <option value="24">24 ticks/s</option>
+                <option value="1000">Max</option>
+              </select>
+              <span id="playback-mode" class="replay-badge" hidden>Replay</span>
+              <span id="tick-label" class="tick-label" aria-label="Tick">0 / 300</span>
+            </div>
+            <div id="world-status" class="world-status" aria-live="polite"></div>
+            <section class="scores" aria-label="Scores"><div id="standings"></div></section>
+            <div class="map-container" id="map-container">
+              <canvas id="map" aria-label="Resource Hunt map" role="img"></canvas>
+              <div class="map-tooltip" id="map-tooltip" hidden></div>
+              <div class="map-empty" id="map-empty">Loading…</div>
+            </div>
+            <div class="map-legend">
+              <span>● Bot / home</span><span class="drone-key">◈ Scavenger</span
+              ><span class="cache-key">⬡ Guardian cache</span
+              ><span class="trap-key">△ Cargo trap</span><span>▧ Hazard forecast</span>
+            </div>
+            <div class="timeline">
+              <input
+                id="timeline"
+                type="range"
+                min="0"
+                max="0"
+                value="0"
+                aria-label="Replay tick"
+                disabled
+              />
+            </div>
           </div>
-          <section class="scores" aria-label="Scores"><div id="standings"></div></section>
-          <div class="map-container" id="map-container">
-            <canvas id="map" aria-label="Resource hunt map" role="img"></canvas>
-            <div class="map-tooltip" id="map-tooltip" hidden></div>
-            <div class="map-empty" id="map-empty">Loading…</div>
-          </div>
-          <div class="timeline">
-            <input
-              id="timeline"
-              type="range"
-              min="0"
-              max="0"
-              value="0"
-              aria-label="Replay tick"
-              disabled
-            />
-          </div>
+          <details id="bot-statistics" class="activity panel" hidden>
+            <summary>Bot statistics</summary>
+            <div class="bot-statistics-body">
+              <label for="statistics-bot">Bot</label>
+              <select id="statistics-bot"></select>
+              <div id="bot-statistics-values"></div>
+            </div>
+          </details>
+          <details class="activity panel">
+            <summary>Activity</summary>
+            <div id="event-log" aria-live="polite"></div>
+          </details>
         </div>
-        <details class="activity panel">
-          <summary>Activity</summary>
-          <div id="event-log" aria-live="polite"></div>
-        </details>
+        <section
+          class="panel results-panel"
+          id="panel-results"
+          aria-labelledby="match-results-heading"
+          hidden
+        >
+          <h2 id="match-results-heading">Match results</h2>
+          <div id="match-results"><p class="muted">Finish a match to see its results.</p></div>
+        </section>
+        <section
+          class="panel results-panel"
+          id="panel-tournament"
+          aria-labelledby="tournament-heading"
+          hidden
+        >
+          <h2 id="tournament-heading">Tournament</h2>
+          <p class="muted" id="tournament-status" role="status">
+            Run a tournament to cycle through biomes until a bot reaches the win target.
+          </p>
+          <p class="muted">
+            Standings use total points banked across all rounds. Tied leaders share a round win.
+            Badges earned in each round count toward the tournament total.
+          </p>
+          <div id="tournament-summary"></div>
+          <h3>Biome progress</h3>
+          <label for="tournament-biome">Round and biome</label>
+          <select id="tournament-biome" disabled></select>
+          <div class="tournament-timeline">
+            <label for="tournament-tick">Round tick</label>
+            <input id="tournament-tick" type="range" min="0" max="0" value="0" disabled />
+          </div>
+          <div id="tournament-scores"></div>
+          <div id="tournament-round-results"></div>
+        </section>
       </section>
     </main>
     <div class="toast" id="toast" role="alert" hidden></div>
@@ -184,9 +347,45 @@
         <dt>Home</dt>
         <dd>One step toward your nearest owned bank.</dd>
         <dt>Capture</dt>
-        <dd>Claim an outpost with consecutive uncontested turns.</dd>
+        <dd>
+          Claim or recapture an outpost with consecutive uncontested turns. Each new owner gets
+          three full rounds of protection by default; rivals must wait until its shield expires.
+        </dd>
         <dt>Steal</dt>
-        <dd>Take one fitting item from a bot on your tile. Bases are safe.</dd>
+        <dd>
+          Take one fitting item from a rival on your tile or an adjacent tile. Bases are safe.
+        </dd>
+        <dt>Sabotage</dt>
+        <dd>
+          One turn beside an enemy depot disables banking for six ticks. Owners can repair early,
+          and the depot is protected from another sabotage until 12 ticks after the attack.
+        </dd>
+        <dt>Trap</dt>
+        <dd>
+          Spend one ore to deploy a visible cargo trap. Arms next tick, lasts 30 ticks, with an
+          8-tick tool cooldown and two active traps per bot. Loaded rivals trigger traps by crossing
+          them or by standing on them when a tick starts.
+        </dd>
+        <dt>Guard</dt>
+        <dd>
+          Protect cargo from theft, traps, and enemy hits through the following tick. Clear adjacent
+          traps or strike adjacent enemies to fight back.
+        </dd>
+        <dt>Cache</dt>
+        <dd>
+          Guard before striking a ready guardian. A nonlethal hit can draw retaliation. Defeat the
+          guardian in three hits, then loot one fitting item per turn on the cache.
+        </dd>
+        <dt>Scavengers</dt>
+        <dd>
+          Step off a drone's tile before it can stun you. Drones check for a target before moving
+          and take two hits to disable.
+        </dd>
+        <dt>Hazards</dt>
+        <dd>
+          Watch the forecast and evacuate. Impacts spill cargo and delay exposed bots; hazardous
+          terrain clears after seven ticks. Bases and bridges are protected.
+        </dd>
         <dt>Skip</dt>
         <dd>Wait one turn.</dd>
       </dl>
