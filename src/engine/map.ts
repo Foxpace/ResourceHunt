@@ -1,9 +1,11 @@
+import type { MapSetup, ResourceLayout } from "./maps/generation-models.ts";
+import { mapCells } from "./grid.ts";
 import { placeBases } from "./map-layout.ts";
-import { nearStart } from "./starting-areas.ts";
+import { nearStart } from "./maps/starting-areas.ts";
 import { randomFromSeed } from "./random.ts";
 import { positionKey, samePosition, terrainCost } from "./pathfinding.ts";
-import { generateBiome } from "./biome-generator.ts";
-import { placeCompetitionSites, stockHotspots } from "./competition-map.ts";
+import { generateBiome } from "./maps/biome-generator.ts";
+import { placeCompetitionSites, stockHotspots } from "./maps/competition-map.ts";
 import {
   type GameConfig,
   type GameMap,
@@ -26,40 +28,68 @@ export function generateMap(
 } {
   const proposedBases = placeBases(config, botCount);
   const random = randomFromSeed(`${config.seed}:map`);
-  const { width, height } = config;
   const { map, bases, openingCells } = generateBiome(config, proposedBases, random);
-  const { tiles } = map;
   const protectedCells = [...bases, ...openingCells];
-  const { hotspots, outposts } = placeCompetitionSites(map, config, protectedCells, bases);
-  const resources: ResourcePile[] = [];
-  const isBase = (p: Position) => bases.some((base) => samePosition(base, p));
-  for (let y = 0; y < height; y++)
-    for (let x = 0; x < width; x++) {
-      if (
-        !Number.isFinite(terrainCost(map, { x, y })) ||
-        tiles[y]![x] === "bridge" ||
-        isBase({ x, y }) ||
-        nearStart({ x, y }, bases) ||
-        outposts.some((post) => samePosition(post, { x, y })) ||
-        random() >= config.resourceDensity
-      )
-        continue;
-      const kindRoll = random();
-      const kind: ResourceKind =
-        kindRoll < (hotspots.length ? 0.78 : 0.56)
-          ? "ore"
-          : kindRoll < (hotspots.length ? 0.97 : 0.88)
-            ? "crystal"
-            : "relic";
-      resources.push({ x, y, kind, amount: 1 + Math.floor(random() * 3) });
-    }
-  // A small equal opening supply, except when resources were explicitly disabled.
-  if (config.resourceDensity > 0)
-    for (const p of openingCells) {
-      const existing = resources.findIndex((pile) => positionKey(pile) === positionKey(p));
-      if (existing >= 0) resources.splice(existing, 1);
-      resources.push({ ...p, kind: "crystal", amount: 2 });
-    }
-  stockHotspots(map, config, hotspots, outposts, protectedCells, resources);
+  const setup = { map, config };
+  const starts = { bases, protectedCells };
+  const { hotspots, outposts } = placeCompetitionSites(setup, starts);
+  const layout = { ...starts, hotspots, outposts };
+
+  const resources = scatterResources(setup, layout, random);
+  if (config.resourceDensity > 0) stockOpeningCells(resources, openingCells);
+
+  stockHotspots(setup, layout, resources);
+
   return { map, bases, resources, hotspots, outposts };
+}
+
+function scatterResources(
+  setup: MapSetup,
+  layout: ResourceLayout,
+  random: () => number,
+): ResourcePile[] {
+  const { map, config } = setup;
+  const { bases, hotspots, outposts } = layout;
+  const resources: ResourcePile[] = [];
+
+  for (const { x, y } of mapCells(map)) {
+    const position = { x, y };
+
+    const terrainSuitable =
+      Number.isFinite(terrainCost(map, position)) && map.tiles[y]![x] !== "bridge";
+    const positionReserved =
+      nearStart(position, bases) || outposts.some((post) => samePosition(post, position));
+    if (!terrainSuitable || positionReserved) continue;
+
+    const shouldPlaceResource = random() < config.resourceDensity;
+    if (!shouldPlaceResource) continue;
+
+    resources.push(createScatteredResource(position, hotspots.length, random));
+  }
+
+  return resources;
+}
+
+function stockOpeningCells(resources: ResourcePile[], openingCells: Position[]): void {
+  for (const position of openingCells) {
+    const existing = resources.findIndex((pile) => positionKey(pile) === positionKey(position));
+    if (existing >= 0) resources.splice(existing, 1);
+
+    resources.push({ ...position, kind: "crystal", amount: 2 });
+  }
+}
+
+function createScatteredResource(
+  position: Position,
+  hotspotCount: number,
+  random: () => number,
+): ResourcePile {
+  const kindRoll = random();
+  const kind: ResourceKind =
+    kindRoll < (hotspotCount ? 0.78 : 0.56)
+      ? "ore"
+      : kindRoll < (hotspotCount ? 0.97 : 0.88)
+        ? "crystal"
+        : "relic";
+  return { ...position, kind, amount: 1 + Math.floor(random() * 3) };
 }
