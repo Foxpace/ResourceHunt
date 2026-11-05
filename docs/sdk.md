@@ -98,16 +98,25 @@ const moves = getMoveOptions(state); // Includes costs for this map's terrain.
 
 Return one `Action` per decision:
 
-| Action                                 | Effect                                                  |
-| -------------------------------------- | ------------------------------------------------------- |
-| `{ type: "move", direction: "N" }`     | Move one tile. Direction can be `N`, `W`, `E`, or `S`.  |
-| `{ type: "grab" }`                     | Take one unit from the current tile if it fits.         |
-| `{ type: "home" }`                     | Move one step toward the cheapest owned bank.           |
-| `{ type: "skip" }`                     | Spend the turn in place.                                |
-| `{ type: "capture" }`                  | Spend a turn capturing the outpost on your tile.        |
-| `{ type: "steal", targetId: "rival" }` | Take one fitting cargo item from that bot on your tile. |
+| Action                                         | Effect                                                                                                      |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `{ type: "move", direction: "N" }`             | Move one tile. Direction can be `N`, `W`, `E`, or `S`.                                                      |
+| `{ type: "grab" }`                             | Take one unit from the current tile if it fits.                                                             |
+| `{ type: "home" }`                             | Move one step toward the cheapest owned bank.                                                               |
+| `{ type: "skip" }`                             | Spend the turn in place.                                                                                    |
+| `{ type: "capture" }`                          | Spend a turn capturing the outpost on your tile.                                                            |
+| `{ type: "steal", targetId: "rival" }`         | Take one fitting cargo item from a rival on your tile or one orthogonal step away.                          |
+| `{ type: "sabotage", targetId: "outpost-1" }`  | Disable adjacent enemy banking for six ticks. The depot then has a 12-tick cooldown starting at the attack. |
+| `{ type: "repair", targetId: "outpost-1" }`    | Restore a nearby owned depot and cancel sabotage.                                                           |
+| `{ type: "deployTrap" }`                       | Spend one ore to place a visible trap on your tile.                                                         |
+| `{ type: "clearTrap", targetId: "trap-10-0" }` | Remove a trap on your tile or an adjacent tile.                                                             |
+| `{ type: "guard" }`                            | Protect cargo and prevent threat delays through the following tick.                                         |
+| `{ type: "strike", targetId: "drone-1" }`      | Deal one damage to an adjacent drone or cache guardian.                                                     |
+| `{ type: "lootCache", targetId: "cache-1" }`   | Take one fitting item while on a defeated guardian's cache.                                                 |
 
-Returning `home` does not schedule future actions. Return it again on later turns to continue home. Arrival at your base or an owned outpost automatically banks all cargo. `home` selects the cheapest owned banking site each turn.
+See [competitive world](world.md) for costs, cooldowns, forecasts, enemy behavior, and defenses.
+
+Returning `home` does not schedule future actions. Return it again on later turns to continue home. Arrival at your base or an operational owned outpost automatically banks all cargo. `home` selects the cheapest owned banking site each turn.
 
 A blocked move, empty grab, or grab that exceeds capacity consumes the turn. An invalid action or thrown error is recorded as a bot error. A decision timeout disables the worker for the rest of the match.
 
@@ -121,21 +130,24 @@ For example, entering a mountain takes the current turn plus two travel turns. T
 
 `Observation` is a fresh copy of the game state at the start of your decision. Changing it does not change the engine. Keep persistent strategy memory in your class fields.
 
-| Field            | Type             | Meaning                                          |
-| ---------------- | ---------------- | ------------------------------------------------ |
-| `config`         | Object           | Match settings listed below                      |
-| `tick`           | `number`         | Zero-based tick, from `0` to `maxTicks - 1`      |
-| `maxTicks`       | `number`         | Configured match length                          |
-| `remainingTicks` | `number`         | Ticks left, including the current tick           |
-| `capacity`       | `number`         | Maximum inventory weight                         |
-| `map`            | `GameMap`        | Full terrain grid                                |
-| `resources`      | `ResourcePile[]` | All remaining piles                              |
-| `hotspots`       | `Hotspot[]`      | Finite high-value resource clusters              |
-| `outposts`       | `Outpost[]`      | Ownership and capture progress for forward banks |
-| `bots`           | `BotState[]`     | Every bot, in the original lineup order          |
-| `self`           | `BotState`       | Your bot's current state                         |
+| Field            | Type             | Meaning                                              |
+| ---------------- | ---------------- | ---------------------------------------------------- |
+| `config`         | Object           | Match settings listed below                          |
+| `tick`           | `number`         | Zero-based tick, from `0` to `maxTicks - 1`          |
+| `maxTicks`       | `number`         | Configured match length                              |
+| `remainingTicks` | `number`         | Ticks left, including the current tick               |
+| `capacity`       | `number`         | Maximum inventory weight                             |
+| `map`            | `GameMap`        | Full terrain grid                                    |
+| `resources`      | `ResourcePile[]` | All remaining piles                                  |
+| `hotspots`       | `Hotspot[]`      | Finite high-value resource clusters                  |
+| `outposts`       | `Outpost[]`      | Ownership and capture progress for forward banks     |
+| `world`          | `WorldState`     | Visible traps, drones, caches, hazards, and defenses |
+| `bots`           | `BotState[]`     | Every bot, in the original lineup order              |
+| `self`           | `BotState`       | Your bot's current state                             |
 
-`config` contains `biome`, `width`, `height`, `ticks`, `seed`, `baseLayout`, `resourceDensity`, `terrainDensity`, `capacity`, `decisionTimeoutMs`, `hotspotCount`, `outpostCount`, `captureTurns`, `stealing`, and `stealCooldownTicks`. `baseLayout` is `"edges"` or `"center"`.
+`world` contains `traps`, `drones`, `caches`, `hazards`, and per-bot `defenses`. These arrays are fully visible to every bot and are recorded each tick. Drone routes show their current planned movement. Hazards include exact cells, `announcedAt`, `startsAt`, and `endsAt`. `state.map` includes active temporary terrain, so normal pathfinding respects lava, meteors, and storms.
+
+`config` contains `biome`, `width`, `height`, `ticks`, `seed`, `baseLayout`, `resourceDensity`, `terrainDensity`, `capacity`, `decisionTimeoutMs`, `hotspotCount`, `outpostCount`, `captureTurns`, `captureImmunityTicks`, `stealing`, `stealCooldownTicks`, `sabotage`, `cargoTraps`, `scavengerCount`, `guardianCount`, and `naturalEvents`. `baseLayout` is `"edges"` or `"center"`.
 
 Every bot sees the entire map. Turns resolve sequentially and starting order rotates each tick; later bots see earlier bots' changes in the same tick. Workers are not called during automatic travel turns or after being disabled.
 
@@ -151,7 +163,7 @@ Every bot sees the entire map. Turns resolve sequentially and starting order rot
 
 `state.hotspots` contains `Hotspot[]`: `{ id, x, y, radius }`. Each marks a finite crystal/relic cluster; `ResourcePile.hotspotId` identifies its stock. Resources never respawn.
 
-`state.outposts` contains `Outpost[]`: `{ id, x, y, ownerId, capturingBotId, captureProgress }`. Ownership and capture progress update during turns. Neutral ownership and no active capturer use `null`.
+`state.outposts` contains `Outpost[]`: `{ id, x, y, ownerId, capturingBotId, captureProgress }`. The optional fields `captureProtectedUntilTick`, `disabledUntilTick`, and `sabotageProtectedUntilTick` give the expiry ticks for capture immunity, bank downtime, and sabotage cooldown. Old replays may also have `sabotagingBotId` and `sabotageProgress`. Ownership and progress update during turns. Neutral ownership and no active capturer use `null`.
 
 `BotState` contains:
 
@@ -301,9 +313,9 @@ if (state.self.inventory.length && bank && bank.route.cost + 1 >= state.remainin
 
 ### `canCapture(state)`
 
-Returns whether a capture action can advance the outpost on your tile. You must be ready to act, must not already own it, and no other active bot may occupy it. Disabled bots do not block capture.
+Returns whether a capture action can advance the outpost on your tile. You must be ready to act, must not already own it, its ownership protection must have expired, and no other active bot may occupy it. Disabled bots do not block capture.
 
-Return `capture` for `config.captureTurns` consecutive turns, default `3`. Taking another action, leaving, failing a decision, or an active rival entering resets progress. Ownership remains with the previous owner until capture completes. The new owner banks existing cargo immediately. Repeating capture on an owned outpost awards nothing.
+Return `capture` for `config.captureTurns` consecutive turns, default `3`. Taking another action, leaving, failing a decision, or an active rival entering resets progress. Ownership remains with the previous owner until capture completes. The new owner banks existing cargo immediately. Repeating capture on an owned outpost awards nothing. Each completed capture grants `captureImmunityTicks` full following rounds of protection against recapture and sabotage, default `3`. Zero disables this protection. `captureProtectedUntilTick` is the first tick on which rivals can act again; `isOutpostProtected(outpost, tick)` checks the current window. Owners can still bank and repair during protection.
 
 ```ts
 if (canCapture(state)) return { type: "capture" } satisfies Action;
@@ -311,14 +323,14 @@ if (canCapture(state)) return { type: "capture" } satisfies Action;
 
 ### `getStealTargets(state)` and `canSteal(state, targetId)`
 
-`getStealTargets` returns eligible rivals on your tile, sorted by descending item value. Each `StealTarget` has `{ botId, kind, value, weight }`, describing the highest-value item that fits in your free capacity. `canSteal` checks eligibility for one target.
+`getStealTargets` returns eligible rivals on your tile or one orthogonal step away, sorted by descending item value. Each `StealTarget` has `{ botId, kind, value, weight }`, describing the highest-value item that fits in your free capacity. `canSteal` checks eligibility for one target.
 
 ```ts
 const target = getStealTargets(state)[0];
 if (target) return { type: "steal", targetId: target.botId } satisfies Action;
 ```
 
-A successful theft transfers exactly one unit and consumes the turn. It requires `config.stealing`, available bag capacity, a ready thief, an expired thief cooldown, and an unprotected target. All base tiles are safe, regardless of owner. Outposts are not safe zones. Disabled rivals' unbanked cargo can be looted.
+A successful theft transfers exactly one unit and consumes the turn. It requires `config.stealing`, available bag capacity, a ready thief, an expired thief cooldown, and an unprotected target. Either participant standing on any base tile prevents theft. Outposts are not safe zones. Disabled rivals' unbanked cargo can be looted.
 
 Successful theft at zero-based tick `t` sets `stealReadyTick` to `t + config.stealCooldownTicks`, default `5`. Both participants receive `theftProtectedUntilTick = t + THEFT_PROTECTION_TICKS`, with `THEFT_PROTECTION_TICKS === 2`. This protects them during the theft tick and the following tick, giving them a turn to leave before a steal-back. Failed attempts consume a turn without transferring cargo or starting a new cooldown.
 
@@ -544,3 +556,47 @@ export default class RandomBot implements Bot {
 | `StealTarget`         | Eligible rival and highest-value fitting cargo item              |
 
 See [`src/sdk.ts`](../src/sdk.ts) for the public exports and [`src/engine/types.ts`](../src/engine/types.ts) for the complete type definitions.
+
+## Threat and competition helpers
+
+| Helper                                    | Purpose                                                                                                          |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `canSabotage(state, targetId)`            | Check enemy ownership, range, depot cooldown, and the owner's guard.                                             |
+| `canRepair(state, targetId)`              | Check whether a damaged owned depot is within one tile.                                                          |
+| `canDeployTrap(state)`                    | Check ore, cooldown, active trap limit, and protected sites.                                                     |
+| `canClearTrap(state, targetId)`           | Check range to a visible trap.                                                                                   |
+| `canStrike(state, targetId)`              | Check whether a living drone or guardian is within one tile.                                                     |
+| `canLootCache(state, targetId)`           | Check guardian defeat, position, and capacity for the next item.                                                 |
+| `getHazardsAt(state, position)`           | Read active or forecast hazards covering a tile.                                                                 |
+| `getDefensiveAction(state)`               | Suggest evacuation, clearing an unarmed trap under your cargo, stepping off a drone, or retreat from a guardian. |
+| `protectDroneCrossing(state, action)`     | Suggest guarding before an intended step onto a drone that can attack.                                           |
+| `getGuardianFightAction(state, targetId)` | Choose whether to guard or strike an adjacent guardian.                                                          |
+| `getTrapAction(state)`                    | Suggest placing an ore trap on a loaded rival’s likely route to a bank.                                          |
+| `getCompetitiveAction(state)`             | Suggest nearby repair, sabotage, cache combat, looting, or a useful trap.                                        |
+| `getHazardMap(map, world, tick)`          | Derive temporary terrain from a base map and recorded world state.                                               |
+
+Eligibility helpers also check disabled bots, travel delays, and remaining turns. Optional tactical helpers return an `Action` or `undefined`; your strategy can use them before its normal collection logic:
+
+```ts
+const defense = getDefensiveAction(state);
+if (defense) return defense;
+
+const competition = getCompetitiveAction(state);
+if (competition) return competition;
+```
+
+`getBankingSites`, `getNearestBank`, and `planTrip` exclude disabled depots. Replan when ownership, sabotage, or hazard forecasts change. Bases remain available for banking. `CLASSIC_WORLD_RULES` disables all five new mechanics when creating a classic match; `DEFAULT_WORLD_RULES` enables them with two drones and two caches.
+
+## Multiple copies of a bot
+
+Choose a copy count beside each strategy in the UI, or repeat IDs in the CLI:
+
+```sh
+yarn play --bots nearest,nearest,raider,strategist
+```
+
+Each copy runs in its own worker, with separate class fields, module state, and a seeded random stream. Replicas receive unique participant IDs such as `nearest-copy-1` and `nearest-copy-2`, names such as `Scout #1`, separate colors, bases, inventories, and standings. Their `strategyId` retains the original catalog ID, such as `nearest`. A strategy selected once keeps its existing ID and name.
+
+Use `state.self.id` for your participant's identity. The class's static `metadata.id` identifies the strategy and can differ from the participant ID when copies are running. Ownership, capture progress, theft targets, events, and replay references all use participant IDs.
+
+Programmatic `createGame` and `runBenchmark` accept repeated descriptors. `createBotLineup(descriptors)` is available if you need the stable participant identities before running a match. Benchmarks assign identities before rotating base slots, keeping each copy's results separate. The total limit of 15 includes every copy, and map-size requirements use that total. Repeated descriptors create new workers; `new Game(controllers)` still expects distinct controllers with unique IDs.

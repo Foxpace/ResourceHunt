@@ -18,8 +18,8 @@ Watch matches in the browser or run headless benchmarks. Both use the same game 
 
 ## Screenshots
 
-| Riverlands | Volcanic |
-| ---------- | -------- |
+| Riverlands                                                 | Volcanic                                                |
+| ---------------------------------------------------------- | ------------------------------------------------------- |
 | ![Riverlands map preview](docs/assets/riverland-image.png) | ![Volcanic map preview](docs/assets/volcanic-image.png) |
 
 ## Run
@@ -33,7 +33,7 @@ yarn dev
 
 Open [localhost:3000](http://127.0.0.1:3000). Use `PORT=3100 yarn dev` to change the port.
 
-Select up to 15 bots, choose a map, then run, pause, or step through the match. The timeline lets you review completed ticks. Import and export replays to inspect runs later.
+Choose how many copies of each strategy to run, up to 15 total participants, then choose a map, then run, pause, or step through the match. The timeline lets you review completed ticks. Import and export replays to inspect runs later.
 
 ## Benchmark
 
@@ -47,6 +47,9 @@ yarn play --biome volcanic --seed training --ticks 300
 # Compare strategies across maps and base positions
 yarn bench --bots nearest,prospector,courier,strategist --matches 20 --seed training
 
+# Run multiple independent copies of one strategy
+yarn play --bots nearest,nearest,raider,strategist --seed replicas
+
 # Save JSON results and a replay
 yarn --silent play --seed training --json \
   --output results/match.json --replay results/replay.json
@@ -55,7 +58,28 @@ yarn --silent play --seed training --json \
 yarn --silent bench --matches 20 --json > results.json
 ```
 
-Benchmarks rotate bots through every base on each map. Use a match count divisible by the bot count for balanced comparisons. Results include scores, ranks, wins, and bot errors.
+In the browser, open **Bot statistics** below the arena and select a participant. Counters follow the current tick during a live match or while scrubbing an exported replay. Older replay files can still show scores, items banked, captures, thefts, losses, and errors from their recorded frames.
+
+The **Results** tab opens when a match finishes and shows its final standings and achievements. It shows up to three standout awards and five more drawn from the remaining earned awards. See [rewards and achievements](docs/rewards.md) for resource values, badge rules, and tournament wins.
+
+Choose **Run tournament** to cycle through biomes without showing maps. The tournament ends when a bot reaches the win target, which defaults to three. Tied leaders share a round win. Standings rank bots by total points banked and show badge totals. Choose any completed round and move the tick slider to see how its scores changed.
+
+Open **Results and tournament options** to set the win target, choose how many badges are shown, or select the statistics columns to display.
+
+The CLI uses the same tournament rules and badge selection as the browser. Use `--stats` to choose terminal columns. JSON retains the full statistics.
+
+```sh
+yarn play --standout-badges 2 --random-badges 4 --stats tilesWalked,guardiansDefeated
+yarn tournament --wins 3 --biome forest --output results/tournament.json
+yarn inspect --input results/tournament.json
+yarn inspect --input results/tournament.json --round 2 --tick 45
+yarn inspect --input results/tournament.json --biome forest
+yarn inspect --input results/replay.json --tick 45 --bot raider --map
+```
+
+Round numbers start at one and ticks start at zero. Use a round number when a biome was played more than once. An intermediate tournament tick shows the scores recorded at that point. A finished round also shows the match statistics and badges. Match replays include per-tick activity and any detailed bot counters recorded by that replay version.
+
+Benchmarks rotate bots through every base on each map. Use a match count divisible by the bot count for balanced comparisons. Results include scores, ranks, wins, and bot errors. Each row also has a `statistics` object. Benchmark rows sum those counters across matches, and `results` keeps each match and its base order for seed-by-seed comparisons.
 
 Keep seeds, opponents, and settings fixed when comparing bot versions. Run `yarn play --help` for all options. Exit codes are `0` for success, `1` for run failures, and `2` for bot or discovery errors.
 
@@ -125,20 +149,20 @@ Defaults: **33 × 25 grid, 300 ticks, four bots, capacity 8, 100 ms per decision
 - Every map keeps bases, resources, and outposts reachable.
 - Grab collects one unit if it fits. Resources do not respawn.
 - Finite crystal/relic hotspots concentrate valuable supplies at terrain-aware locations.
-- Capture outposts with three consecutive uncontested `capture` turns. Owners can bank there; rivals can reclaim them. Leaving, taking another action, or an active rival entering interrupts capture.
-- `steal` transfers one highest-value fitting item from a bot on your tile. Base tiles are safe. Successful theft has a five-tick cooldown; both participants are protected through the next tick.
+- Capture outposts with three consecutive uncontested `capture` turns. Owners can bank there; rivals can reclaim them after a three-round protection window. Each capture renews protection against recapture and sabotage. Leaving, taking another action, or an active rival entering interrupts capture.
+- `steal` transfers one highest-value fitting item from a bot on your tile or one orthogonal tile away. Either bot standing on a base tile prevents theft. Successful theft has a five-tick cooldown; both participants are protected through the next tick.
 - Bots share tiles without movement blocking.
 - Only banked resources score. Ties share a rank; unbanked inventory earns nothing.
 - Invalid decisions cost a turn. A timed-out bot is disabled for the match.
 
-Hotspots, outposts, and theft are enabled by default. The default lineup includes [Strategist](bots/strategist.ts), which captures outposts and steals exposed cargo. Adjust these settings under Advanced in the UI or through the CLI:
+Hotspots, outposts, theft, sabotage, cargo traps, scavenger drones, guardian caches, and forecast natural events are enabled by default. The default lineup is Scout, Raider, Rover, and Strategist. [Raider](bots/raider.ts) weighs cache raids and short depot sabotage detours against bankable collection trips; [Strategist](bots/strategist.ts) combines collection with competition and defense. Read the [competitive world rules](docs/world.md) for counterplay and SDK examples. Adjust these settings under Advanced in the UI or through the CLI:
 
 ```sh
-yarn play --hotspots 3 --outposts 2 --capture-turns 3 --steal-cooldown 5
+yarn play --hotspots 3 --outposts 2 --capture-turns 3 --capture-immunity 3 --steal-cooldown 5
 yarn play --hotspots 0 --outposts 0 --stealing false
 ```
 
-JSON standings and benchmarks include captures, outposts owned, stolen units, and lost units. Existing bots remain valid; old replays import with competition disabled.
+JSON standings and benchmarks include captures, outposts owned, stolen units, and lost units. Statistics count completed grabs, deposits, theft value, sabotage attempts and completions, depot downtime, repairs, trap placements and hits, guardian fights and loot, and drone stuns. Trap triggers credit the trap owner and hits count against the victim. Stolen value measures cargo acquired before banking. Existing bots remain valid; old replays import with competition disabled.
 
 | Resource | Value | Weight |
 | -------- | ----: | -----: |
@@ -164,3 +188,46 @@ Runtime dependencies are limited to `tsx` and `esbuild`. Tests use Node's built-
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Code organization
+
+```text
+src/
+├── engine/             Game rules, state, configuration, navigation, and replay validation
+│   ├── world/          Sabotage, traps, neutral enemies, hazards, and replay validation
+│   └── maps/           Generation coordination and shared geometry, rivers, and site tools
+│       └── templates/  One module per biome, including its special placement rules
+├── runtime/            Bot discovery, worker isolation, matches, and benchmarks
+├── http/               HTTP routes and browser asset bundling
+├── cli/                Command arguments and configuration
+└── web/
+    ├── app.ts          Browser startup and shutdown
+    ├── data/           HTTP game client
+    ├── model/          Application state, playback, and map descriptions
+    └── view/           DOM bindings, HTML panels, and canvas drawing
+bots/                   Example bot strategies
+scripts/                Code structure checks
+tests/                  Behavior tests and shared local game client
+```
+
+The browser keeps application behavior in `web/model` and rendering in `web/view`.
+Views forward user actions and display the resulting state. HTTP access lives in
+`web/data`, and game rules live in `engine`.
+
+Playback responsibilities live in three modules under `web/model/`:
+
+- `playback.ts` coordinates timing, playback controls, and state notifications.
+- `playback-session.ts` owns the empty, live, or recorded source, in-flight requests, and session cleanup.
+- `playback-timeline.ts` owns recorded frames, cursor navigation, and recent events.
+
+The latest source-selection request wins. Replacement waits for an active tick, and late
+sessions from superseded creation requests are released. Failed replacement keeps the
+previous source usable. Disposal invalidates pending selections immediately, suppresses
+late publications, and releases the active session after its tick finishes. A session
+created after disposal is released when its response arrives.
+
+The application tracks import and generation requests before reading replay files, so
+an older file read cannot override a newer source request. Generation controls derive their
+busy state from the current playback selection.
+
+See [AGENTS.md](AGENTS.md) for coding and test standards.
