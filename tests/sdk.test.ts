@@ -2,336 +2,324 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   canGrab,
-  findPath,
   getInventoryStats,
   getMoveOptions,
   getOpponentArrivalTimes,
   planTrip,
-  samePosition,
-  type Action,
-  type BotState,
-  type GameMap,
-  type Observation,
-  type OpponentArrivalTime,
-  type Position,
-  type TripPlan,
 } from "../src/sdk.ts";
-import { DEFAULT_CONFIG, type BotController } from "../src/engine/types.ts";
-import { Game } from "../src/engine/game.ts";
+import { createMap, createBotState, createObservation } from "./helpers/sdk-fixtures.ts";
+import {
+  assertWeightedTrip,
+  assertOpponentTurnOrder,
+  createMovementObservation,
+  createGrabObservation,
+  createWeightedTripObservation,
+  createOpponentObservation,
+  createPlannedTrip,
+  createArrivalRace,
+} from "./helpers/sdk-scenarios.ts";
+import { advanceUntil } from "./helpers/game-fixtures.ts";
 
-function bot(id: string, position: Position, base = position): BotState {
-  return {
-    id,
-    name: id,
-    description: "SDK test",
-    color: "#ffffff",
-    position,
-    base,
-    inventory: [],
-    score: 0,
-    delivered: 0,
-    travelRemaining: 0,
-    errors: 0,
-    lastAction: "Ready",
-    disabled: false,
-    stealReadyTick: 0,
-    theftProtectedUntilTick: 0,
-    captures: 0,
-    stolen: 0,
-    lost: 0,
-  };
+for (const expected of [
+  { direction: "N", destination: { x: 1, y: 0 }, terrain: "forest", cost: 2, passable: true },
+  { direction: "W", destination: { x: 0, y: 1 }, terrain: "bridge", cost: 1, passable: true },
+  {
+    direction: "E",
+    destination: { x: 2, y: 1 },
+    terrain: "water",
+    cost: Infinity,
+    passable: false,
+  },
+  { direction: "S", destination: { x: 1, y: 2 }, terrain: "mountain", cost: 3, passable: true },
+]) {
+  test(`move options describe ${expected.terrain} to the ${expected.direction} without mutation`, () => {
+    // Given
+    const observation = createMovementObservation();
+    const original = structuredClone(observation);
+
+    // When
+    const option = getMoveOptions(observation).find(
+      (move) => move.direction === expected.direction,
+    );
+
+    // Then
+    assert.deepEqual(option, expected);
+    assert.deepEqual(observation, original);
+  });
 }
 
-function state(map: GameMap, bots = [bot("self", { x: 0, y: 0 })]): Observation {
-  return {
-    config: { ...DEFAULT_CONFIG, width: map.width, height: map.height, ticks: 50 },
-    tick: 0,
-    maxTicks: 50,
-    remainingTicks: 50,
-    capacity: 8,
-    map,
-    resources: [],
-    hotspots: [],
-    outposts: [],
-    bots,
-    self: bots.find((bot) => bot.id === "self") ?? bots[0]!,
-  };
-}
-
-test("move options expose terrain costs, river blocking, and map bounds without changing state", () => {
-  const observation = state(
-    {
-      width: 3,
-      height: 3,
-      tiles: [
-        ["grass", "forest", "grass"],
-        ["bridge", "grass", "water"],
-        ["grass", "mountain", "grass"],
-      ],
-    },
-    [bot("self", { x: 1, y: 1 })],
-  );
-  const before = structuredClone(observation);
-  assert.deepStrictEqual(getMoveOptions(observation), [
-    { direction: "N", destination: { x: 1, y: 0 }, terrain: "forest", cost: 2, passable: true },
-    { direction: "W", destination: { x: 0, y: 1 }, terrain: "bridge", cost: 1, passable: true },
-    {
-      direction: "E",
-      destination: { x: 2, y: 1 },
-      terrain: "water",
-      cost: Infinity,
-      passable: false,
-    },
-    { direction: "S", destination: { x: 1, y: 2 }, terrain: "mountain", cost: 3, passable: true },
-  ]);
-  assert.deepStrictEqual(observation, before);
+test("move options block destinations outside the map", () => {
+  // Given
+  const observation = createMovementObservation();
   observation.self.position = { x: 0, y: 0 };
-  const moves = getMoveOptions(observation);
-  assert.ok(
-    moves
-      .filter((move) => move.terrain === null)
-      .every((move) => !move.passable && move.cost === Infinity),
-  );
-  assert.strictEqual(moves.filter((move) => move.terrain === null).length, 2);
+
+  // When
+  const outsideMoves = getMoveOptions(observation).filter((move) => move.terrain === null);
+
+  // Then
+  assert.equal(outsideMoves.length, 2);
+  assert.ok(outsideMoves.every((move) => !move.passable));
+  assert.ok(outsideMoves.every((move) => move.cost === Infinity));
 });
 
-test("inventory stats distinguish unit count, weight, and carried value", () => {
-  const observation = state({ width: 1, height: 1, tiles: [["grass"]] });
-  assert.deepStrictEqual(getInventoryStats(observation), {
-    units: 0,
-    weight: 0,
-    capacity: 8,
-    freeWeight: 8,
-    carriedValue: 0,
-  });
-  observation.self.inventory = ["ore", "crystal", "relic"];
-  assert.deepStrictEqual(getInventoryStats(observation), {
-    units: 3,
-    weight: 6,
-    capacity: 8,
-    freeWeight: 2,
-    carriedValue: 23,
-  });
-});
+for (const loaded of [false, true]) {
+  test(`inventory stats distinguish units, weight, and value for ${loaded ? "loaded" : "empty"} bags`, () => {
+    // Given
+    const self = createBotState({ inventory: loaded ? ["ore", "crystal", "relic"] : [] });
+    const observation = createObservation({ self });
 
-test("canGrab requires a present unit, enough capacity, and an available turn", () => {
-  const observation = state({ width: 2, height: 1, tiles: [["grass", "grass"]] });
-  observation.resources = [{ x: 0, y: 0, kind: "crystal", amount: 2 }];
-  observation.self.inventory = ["relic", "relic"];
-  assert.strictEqual(canGrab(observation), true);
-  observation.self.inventory.push("ore");
-  assert.strictEqual(canGrab(observation), false);
-  observation.self.inventory = [];
-  observation.resources[0]!.amount = 0;
-  assert.strictEqual(canGrab(observation), false);
-  observation.resources[0]!.amount = 2;
-  observation.self.travelRemaining = 1;
-  assert.strictEqual(canGrab(observation), false);
-  observation.self.travelRemaining = 0;
-  observation.self.disabled = true;
-  assert.strictEqual(canGrab(observation), false);
-  observation.self.disabled = false;
-  observation.remainingTicks = 0;
-  assert.strictEqual(canGrab(observation), false);
-  observation.remainingTicks = 10;
-  observation.self.position = { x: 1, y: 0 };
-  assert.strictEqual(canGrab(observation), false);
+    // When
+    const stats = getInventoryStats(observation);
+
+    // Then
+    assert.deepEqual(
+      stats,
+      loaded
+        ? { units: 3, weight: 6, capacity: 8, freeWeight: 2, carriedValue: 23 }
+        : { units: 0, weight: 0, capacity: 8, freeWeight: 8, carriedValue: 0 },
+    );
+  });
+}
+
+const grabCases = [
+  { name: "space for one crystal", options: {}, expected: true },
+  {
+    name: "a full bag",
+    options: { self: { inventory: ["relic", "relic", "ore"] as ("relic" | "ore")[] } },
+    expected: false,
+  },
+  { name: "an exhausted pile", options: { amount: 0 }, expected: false },
+  { name: "remaining travel", options: { self: { travelRemaining: 1 } }, expected: false },
+  { name: "a disabled bot", options: { self: { disabled: true } }, expected: false },
+  { name: "a finished match", options: { remainingTicks: 0 }, expected: false },
+  {
+    name: "a pile at another position",
+    options: { self: { position: { x: 1, y: 0 } } },
+    expected: false,
+  },
+];
+for (const scenario of grabCases) {
+  test(`canGrab handles ${scenario.name}`, () => {
+    // Given
+    const observation = createGrabObservation(scenario.options);
+
+    // When
+    const allowed = canGrab(observation);
+
+    // Then
+    assert.equal(allowed, scenario.expected);
+  });
+}
+
+test("canGrab rejects a missing resource pile", () => {
+  // Given
+  const observation = createGrabObservation();
   observation.resources = [];
-  assert.strictEqual(canGrab(observation), false);
+
+  // When
+  const allowed = canGrab(observation);
+
+  // Then
+  assert.equal(allowed, false);
 });
 
-test("trip plans account for weighted travel, pickups, and the exact banking deadline", () => {
-  const observation = state({ width: 3, height: 1, tiles: [["grass", "forest", "mountain"]] });
-  const pile = { x: 2, y: 0, kind: "relic", amount: 3 } as const;
-  observation.resources = [pile];
-  observation.remainingTicks = 10;
-  const before = structuredClone(observation);
+test("trip planning includes weighted travel, pickups, and an exact banking deadline", () => {
+  // Given
+  const { observation, pile } = createWeightedTripObservation();
+  const original = structuredClone(observation);
+
+  // When
   const plan = planTrip(observation, pile, 2);
-  assert.partialDeepStrictEqual(plan, {
-    units: 2,
-    outbound: { cost: 5, steps: ["E", "E"] },
-    homeward: { cost: 3, steps: ["W", "W"] },
-    travelTurns: 8,
-    grabTurns: 2,
-    totalTurns: 10,
-    resourceValue: 28,
-    bankedValue: 28,
-    feasible: true,
-    reasons: [],
-  });
-  assert.deepStrictEqual(observation, before);
+
+  // Then
+  assertWeightedTrip(plan);
+  assert.deepEqual(observation, original);
+});
+
+test("a trip arriving one turn after the deadline is rejected", () => {
+  // Given
+  const { observation, pile } = createWeightedTripObservation();
   observation.remainingTicks = 9;
-  assert.deepStrictEqual(planTrip(observation, pile, 2).reasons, ["deadline"]);
-  observation.remainingTicks = 50;
-  observation.self.base = { x: 1, y: 0 };
-  observation.self.inventory = ["relic"];
-  // Crossing home unloads the existing bag before collecting the next load.
-  assert.strictEqual(planTrip(observation, pile, 2).feasible, true);
-  observation.self.base = { x: 0, y: 0 };
-  assert.ok(planTrip(observation, pile, 2).reasons.includes("capacity"));
+
+  // When
+  const plan = planTrip(observation, pile, 2);
+
+  // Then
+  assert.deepEqual(plan.reasons, ["deadline"]);
 });
 
-test("trip plans check the live pile, unreachable targets, fatigue, and invalid unit counts", () => {
-  const observation = state({ width: 3, height: 1, tiles: [["grass", "water", "grass"]] });
+for (const crossesHome of [false, true]) {
+  test(`trip capacity ${crossesHome ? "allows" : "rejects"} a load ${crossesHome ? "banked on the way" : "carried throughout"}`, () => {
+    // Given
+    const { observation, pile } = createWeightedTripObservation();
+    observation.remainingTicks = 50;
+    observation.self.inventory = ["relic"];
+    observation.self.base = { x: crossesHome ? 1 : 0, y: 0 };
+
+    // When
+    const plan = planTrip(observation, pile, 2);
+
+    // Then
+    assert.equal(plan.feasible, crossesHome);
+    assert.equal(plan.reasons.includes("capacity"), !crossesHome);
+  });
+}
+
+test("trip planning checks the live pile amount and unreachable terrain", () => {
+  // Given
   const pile = { x: 2, y: 0, kind: "crystal", amount: 99 } as const;
-  observation.resources = [{ ...pile, amount: 1 }];
+  const observation = createObservation({
+    map: createMap([["grass", "water", "grass"]]),
+    resources: [{ ...pile, amount: 1 }],
+  });
+
+  // When
   const plan = planTrip(observation, pile, 2);
+
+  // Then
   assert.ok(plan.reasons.includes("unreachable"));
   assert.ok(plan.reasons.includes("insufficient-resources"));
-  assert.strictEqual(plan.totalTurns, Infinity);
+  assert.equal(plan.totalTurns, Infinity);
+});
+
+test("trip planning rejects a missing pile", () => {
+  // Given
+  const { observation, pile } = createWeightedTripObservation();
   observation.resources = [];
-  assert.ok(planTrip(observation, pile).reasons.includes("missing-resource"));
-  for (const units of [0, -1, 1.5, NaN, Infinity])
-    assert.throws(() => planTrip(observation, pile, units), RangeError);
-  observation.map.tiles[0]![1] = "grass";
-  observation.self.position = { x: 2, y: 0 };
-  observation.self.travelRemaining = 2;
-  observation.resources = [{ ...pile, amount: 1 }];
-  assert.strictEqual(planTrip(observation, pile).totalTurns, 5);
-  observation.self.disabled = true;
-  assert.ok(planTrip(observation, pile).reasons.includes("disabled"));
+
+  // When
+  const plan = planTrip(observation, pile);
+
+  // Then
+  assert.ok(plan.reasons.includes("missing-resource"));
 });
 
-test("opponent arrival estimates include already-acted turns, terrain delays, and rotating initiative", () => {
-  const earlier = bot("earlier", { x: 1, y: 0 });
-  earlier.travelRemaining = 1;
-  const self = bot("self", { x: 3, y: 0 });
-  const later = bot("later", { x: 0, y: 0 });
-  const observation = state(
-    { width: 4, height: 1, tiles: [["grass", "forest", "mountain", "grass"]] },
-    [earlier, self, later],
-  );
-  const estimates = getOpponentArrivalTimes(observation, { x: 2, y: 0 });
-  assert.deepStrictEqual(
-    estimates.map(({ botId, arrivalTick, readyTick, turnOrder }) => ({
-      botId,
-      arrivalTick,
-      readyTick,
-      turnOrder,
-    })),
-    [
-      { botId: "later", arrivalTick: 2, readyTick: 5, turnOrder: 0 },
-      { botId: "earlier", arrivalTick: 2, readyTick: 5, turnOrder: 1 },
-    ],
-  );
-  observation.tick = 1;
-  const nextRound = getOpponentArrivalTimes(observation, { x: 2, y: 0 });
-  assert.strictEqual(nextRound.find((estimate) => estimate.botId === "earlier")!.readyTick, 5);
-  assert.strictEqual(nextRound.find((estimate) => estimate.botId === "later")!.readyTick, 6);
-});
+for (const units of [0, -1, 1.5, NaN, Infinity]) {
+  test(`trip planning rejects an invalid unit count of ${units}`, () => {
+    // Given
+    const { observation, pile } = createWeightedTripObservation();
 
-test("opponents already at a target can act only after their remaining delay and turn", () => {
-  const earlier = bot("earlier", { x: 0, y: 0 });
-  const self = bot("self", { x: 1, y: 0 });
-  const later = bot("later", { x: 0, y: 0 });
-  later.travelRemaining = 2;
-  const disabled = bot("disabled", { x: 0, y: 0 });
-  disabled.disabled = true;
-  const observation = state({ width: 3, height: 1, tiles: [["grass", "grass", "water"]] }, [
-    earlier,
+    // When
+    const plan = () => planTrip(observation, pile, units);
+
+    // Then
+    assert.throws(plan, RangeError);
+  });
+}
+
+test("trip duration includes fatigue before a pickup and return home", () => {
+  // Given
+  const pile = { x: 2, y: 0, kind: "crystal", amount: 1 } as const;
+  const self = createBotState({ position: pile, base: { x: 0, y: 0 }, travelRemaining: 2 });
+  const observation = createObservation({
+    map: createMap([["grass", "grass", "grass"]]),
     self,
-    later,
-    disabled,
-  ]);
+    resources: [pile],
+  });
+
+  // When
+  const plan = planTrip(observation, pile);
+
+  // Then
+  assert.equal(plan.totalTurns, 5);
+});
+
+test("trip planning rejects disabled bots", () => {
+  // Given
+  const { observation, pile } = createWeightedTripObservation();
+  observation.self.disabled = true;
+
+  // When
+  const plan = planTrip(observation, pile);
+
+  // Then
+  assert.ok(plan.reasons.includes("disabled"));
+});
+
+for (const tick of [0, 1]) {
+  test(`opponent arrival estimates account for terrain and initiative on tick ${tick}`, () => {
+    // Given
+    const observation = createOpponentObservation();
+    observation.tick = tick;
+
+    // When
+    const estimates = getOpponentArrivalTimes(observation, { x: 2, y: 0 });
+
+    // Then
+    assert.equal(estimates.find((estimate) => estimate.botId === "earlier")!.readyTick, 5);
+    assert.equal(
+      estimates.find((estimate) => estimate.botId === "later")!.readyTick,
+      tick === 0 ? 5 : 6,
+    );
+  });
+}
+
+test("opponents already at the target wait for fatigue and their next turn", () => {
+  // Given
+  const observation = createOpponentObservation(true);
+
+  // When
   const estimates = getOpponentArrivalTimes(observation, { x: 0, y: 0 });
+
+  // Then
   assert.partialDeepStrictEqual(estimates, [
     { botId: "earlier", arrivalTick: 0, readyTick: 1 },
     { botId: "later", arrivalTick: 0, readyTick: 2 },
     { botId: "disabled", arrivalTick: Infinity, readyTick: Infinity, turnOrder: Infinity },
   ]);
-  assert.ok(
-    getOpponentArrivalTimes(observation, { x: 2, y: 0 }).every(
-      (estimate) => estimate.route === null && estimate.readyTick === Infinity,
-    ),
-  );
 });
 
-test("a planned resource trip banks its predicted value on its predicted engine tick", async () => {
-  let plan: TripPlan;
-  let grabs = 0;
-  let outwardIndex = 0;
-  let returnIndex = 0;
-  const controller: BotController = {
-    metadata: { id: "trip", name: "Trip", description: "Follows an SDK trip plan" },
-    async decide(observation) {
-      if (!plan) {
-        const pile = observation.resources.find(
-          (pile) => observation.map.tiles[pile.y]![pile.x] === "mountain" && pile.amount >= 2,
-        )!;
-        assert.ok(pile);
-        plan = planTrip(observation, pile, 2);
-        assert.ok(plan.feasible);
-      }
-      let action: Action;
-      const outward = plan.outbound!.steps[outwardIndex];
-      const homeward = plan.homeward!.steps[returnIndex];
-      if (outward) {
-        outwardIndex++;
-        action = { type: "move", direction: outward };
-      } else if (grabs < plan.units) {
-        assert.ok(canGrab(observation));
-        grabs++;
-        action = { type: "grab" };
-      } else if (homeward) {
-        returnIndex++;
-        action = { type: "move", direction: homeward };
-      } else action = { type: "skip" };
-      return { action };
-    },
-    dispose() {},
-  };
-  const game = new Game([controller], { seed: "sdk-trip", ticks: 300 });
-  try {
-    do {
-      await game.step();
-    } while (!game.result().standings[0]!.score && game.result().ticks < 300);
-    assert.strictEqual(game.result().ticks, plan!.totalTurns);
-    assert.strictEqual(game.result().standings[0]!.score, plan!.bankedValue);
-    assert.strictEqual(game.result().standings[0]!.errors, 0);
-  } finally {
-    game.dispose();
+test("opponents cannot reach blocked targets", () => {
+  // Given
+  const observation = createOpponentObservation(true);
+
+  // When
+  const estimates = getOpponentArrivalTimes(observation, { x: 2, y: 0 });
+
+  // Then
+  assert.ok(estimates.every((estimate) => estimate.route === null));
+  assert.ok(estimates.every((estimate) => estimate.readyTick === Infinity));
+});
+
+test("a planned resource trip banks its predicted value on its predicted tick", async (context) => {
+  // Given
+  const { game, trip } = createPlannedTrip(context);
+
+  // When
+  await advanceUntil(game, (snapshot) => snapshot.bots[0]!.score > 0);
+
+  // Then
+  assert.equal(game.result().ticks, trip.plan!.totalTurns);
+  assert.equal(game.result().standings[0]!.score, trip.plan!.bankedValue);
+  assert.equal(game.result().standings[0]!.errors, 0);
+});
+
+test("opponent estimates match engine arrival and next-decision ticks", async (context) => {
+  // Given
+  const { game, race } = createArrivalRace(context);
+
+  // When
+  while (race.ready.size < 2) {
+    const tickLimitReached = game.result().ticks >= 200;
+    if (tickLimitReached) break;
+
+    race.recordArrivals(await game.step());
+  }
+
+  // Then
+  for (const estimate of race.estimates!) {
+    assert.equal(race.arrivals.get(estimate.botId), estimate.arrivalTick);
+    assert.equal(race.ready.get(estimate.botId), estimate.readyTick);
   }
 });
 
-test("opponent estimates match actual arrival and next-decision ticks in the engine", async () => {
-  let target: Position;
-  let estimates: OpponentArrivalTime[];
-  const arrivals = new Map<string, number>();
-  const ready = new Map<string, number>();
-  const controllers = ["earlier", "observer", "later"].map((id): BotController => ({
-    metadata: { id, name: id, description: "Arrival test" },
-    async decide(observation) {
-      target ??= observation.resources.find(
-        (pile) => observation.map.tiles[pile.y]![pile.x] === "mountain",
-      )!;
-      assert.ok(target);
-      if (id === "observer") {
-        estimates ??= getOpponentArrivalTimes(observation, target);
-        return { action: { type: "skip" } };
-      }
-      if (samePosition(observation.self.position, target)) {
-        if (!ready.has(id)) ready.set(id, observation.tick);
-        return { action: { type: "skip" } };
-      }
-      const direction = findPath(observation.map, observation.self.position, target)!.steps[0]!;
-      return { action: { type: "move", direction } };
-    },
-    dispose() {},
-  }));
-  const game = new Game(controllers, { seed: "sdk-arrival", ticks: 200 });
-  try {
-    while (ready.size < 2 && game.result().ticks < 200) {
-      const snapshot = await game.step();
-      for (const bot of snapshot.bots) {
-        if (bot.id !== "observer" && samePosition(bot.position, target!) && !arrivals.has(bot.id))
-          arrivals.set(bot.id, snapshot.tick - 1);
-      }
-    }
-    for (const estimate of estimates!) {
-      assert.strictEqual(arrivals.get(estimate.botId), estimate.arrivalTick);
-      assert.strictEqual(ready.get(estimate.botId), estimate.readyTick);
-    }
-  } finally {
-    game.dispose();
-  }
+test("opponent initiative resolves equal arrival times in rotating turn order", () => {
+  // Given
+  const observation = createOpponentObservation();
+
+  // When
+  const estimates = getOpponentArrivalTimes(observation, { x: 2, y: 0 });
+
+  // Then
+  assertOpponentTurnOrder(estimates);
 });
