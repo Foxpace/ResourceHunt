@@ -1,3 +1,9 @@
+import {
+  DEFAULT_WORLD_RULES,
+  type WorldRules,
+  type WorldState,
+  type VisualEffect,
+} from "./world/types.ts";
 export type Position = { x: number; y: number };
 export type Direction = "N" | "W" | "E" | "S";
 export type Biome =
@@ -27,6 +33,9 @@ export type Action =
   | { type: "skip" }
   | { type: "home" }
   | { type: "capture" }
+  | { type: "guard" }
+  | { type: "deployTrap" }
+  | { type: "sabotage" | "repair" | "clearTrap" | "strike" | "lootCache"; targetId: string }
   | { type: "steal"; targetId: string };
 
 export const TERRAIN_COST: Record<Terrain, number> = {
@@ -71,7 +80,7 @@ export const BOT_COLORS = [
   "#a7d6db",
   "#edaca5",
 ];
-export interface GameConfig {
+export interface GameConfig extends WorldRules {
   biome: Biome;
   width: number;
   height: number;
@@ -85,10 +94,12 @@ export interface GameConfig {
   hotspotCount: number;
   outpostCount: number;
   captureTurns: number;
+  captureImmunityTicks: number;
   stealing: boolean;
   stealCooldownTicks: number;
 }
 export const DEFAULT_CONFIG: GameConfig = {
+  ...DEFAULT_WORLD_RULES,
   biome: "riverlands",
   width: 33,
   height: 25,
@@ -102,6 +113,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   hotspotCount: 2,
   outpostCount: 2,
   captureTurns: 3,
+  captureImmunityTicks: 3,
   stealing: true,
   stealCooldownTicks: 5,
 };
@@ -124,10 +136,17 @@ export interface Outpost extends Position {
   ownerId: string | null;
   capturingBotId: string | null;
   captureProgress: number;
+  disabledUntilTick?: number;
+  sabotageProtectedUntilTick?: number;
+  captureProtectedUntilTick?: number;
+  // Progress fields are retained for version 1 replays recorded under the old rules.
+  sabotagingBotId?: string | null;
+  sabotageProgress?: number;
 }
 export const THEFT_PROTECTION_TICKS = 2;
 export interface BotMetadata {
   id: string;
+  strategyId?: string;
   name: string;
   description: string;
 }
@@ -152,9 +171,13 @@ export interface GameEvent {
   tick: number;
   botId: string;
   message: string;
-  kind: "action" | "score" | "error";
+  kind: "action" | "score" | "error" | "world";
+  position?: Position;
+  effect?: VisualEffect;
 }
 export interface Frame {
+  statistics?: Record<string, Partial<import("./match-statistics.ts").MatchStatistics>>;
+  world: WorldState;
   tick: number;
   bots: BotState[];
   resources: ResourcePile[];
@@ -168,6 +191,7 @@ export interface Snapshot extends Frame {
   map: GameMap;
 }
 export interface Observation {
+  world: WorldState;
   config: GameConfig;
   tick: number;
   maxTicks: number;
@@ -201,6 +225,7 @@ export interface BotController {
   dispose(): void;
 }
 export interface Standing {
+  statistics?: import("./match-statistics.ts").MatchStatistics;
   rank: number;
   id: string;
   name: string;
