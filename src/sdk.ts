@@ -22,6 +22,7 @@ export {
   getBankingSites,
   getNearestBank,
   canCapture,
+  isOutpostProtected,
   getStealTargets,
   canSteal,
 } from "./engine/competition.ts";
@@ -53,3 +54,30 @@ export type {
 
 export { BIOMES } from "./engine/biomes.ts";
 export type { BiomeDefinition } from "./engine/biomes.ts";
+
+export {
+  canSabotage,
+  canRepair,
+  canDeployTrap,
+  canClearTrap,
+  canStrike,
+  getGuardianFightAction,
+  canLootCache,
+  getHazardsAt,
+  getDefensiveAction,
+  protectDroneCrossing,
+  getCompetitiveAction,
+  getTrapAction,
+} from "./engine/world/bot-helpers.ts";
+export { getHazardMap } from "./engine/world/hazard-map.ts";
+export { DEFAULT_WORLD_RULES, CLASSIC_WORLD_RULES } from "./engine/world/types.ts";
+export type {
+  WorldState,
+  WorldRules,
+  CargoTrap,
+  ScavengerDrone,
+  GuardianCache,
+  NaturalHazard,
+  HazardKind,
+  BotDefense,
+} from "./engine/world/types.ts";
