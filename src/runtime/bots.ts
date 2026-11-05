@@ -1,3 +1,4 @@
+import { createBotLineup } from "./lineup.ts";
 import { MAX_BOTS } from "../engine/types.ts";
 import { WorkerBot } from "./worker-controller.ts";
 import { relative, join } from "node:path";
@@ -16,7 +17,7 @@ export interface BotCatalog {
 
 /** Demonstrate competitive play by default while retaining custom-folder discovery. */
 export function getDefaultBotIds(catalog: BotCatalog): string[] {
-  const preferred = ["courier", "nearest", "prospector", "strategist"];
+  const preferred = ["nearest", "raider", "rover", "strategist"];
   const available = new Set(catalog.bots.map((bot) => bot.id));
   const selected = new Set(
     [
@@ -26,46 +27,37 @@ export function getDefaultBotIds(catalog: BotCatalog): string[] {
       ]),
     ].slice(0, 4),
   );
+
   // Keep the same order as the UI's discovered-bot checkboxes.
   return catalog.bots.filter((bot) => selected.has(bot.id)).map((bot) => bot.id);
 }
 
 /** Resolve a lineup in the supplied order, shared by the CLI and HTTP adapter. */
 export function selectBots(catalog: BotCatalog, ids: readonly unknown[]): BotDescriptor[] {
-  if (ids.length < 1 || ids.length > MAX_BOTS || new Set(ids).size !== ids.length) {
-    throw new Error(`Select 1 to ${MAX_BOTS} unique bot IDs`);
+  const invalidLineup = ids.length < 1 || ids.length > MAX_BOTS;
+  if (invalidLineup) {
+    throw new Error(`Select 1 to ${MAX_BOTS} bot instances`);
   }
-  return ids.map((id) => {
-    const bot = catalog.bots.find((bot) => bot.id === id);
-    if (!bot) throw new Error(`Unknown bot: ${String(id)}. Run yarn bots to list IDs.`);
-    return bot;
-  });
+
+  return createBotLineup(
+    ids.map((id) => {
+      const bot = catalog.bots.find((bot) => bot.id === id);
+      if (!bot) throw new Error(`Unknown bot: ${String(id)}. Run yarn bots to list IDs.`);
+
+      return bot;
+    }),
+  );
 }
 
 export async function discoverBots(directory = BOT_DIRECTORY): Promise<BotCatalog> {
   const catalog: BotCatalog = { bots: [], errors: [] };
-  const files: string[] = [];
-  async function walk(folder: string): Promise<void> {
-    for (const entry of await readdir(folder, { withFileTypes: true })) {
-      if (entry.name.startsWith("_") || entry.name.startsWith(".")) continue;
-      const file = join(folder, entry.name);
-      if (entry.isDirectory()) await walk(file);
-      else if (
-        entry.isFile() &&
-        entry.name.endsWith(".ts") &&
-        !/\.(test|spec|d)\.ts$/.test(entry.name)
-      )
-        files.push(file);
-    }
-  }
-  await walk(directory);
+  const files = await discoverBotFiles(directory);
+
   for (const file of files.sort()) {
     const worker = new WorkerBot({ id: "", name: "", description: "", file }, 100);
     try {
       const metadata = await worker.init("inspect", true);
-      if (catalog.bots.some((bot) => bot.id === metadata.id))
-        throw new Error(`Duplicate bot ID: ${metadata.id}`);
-      catalog.bots.push({ ...metadata, file });
+      registerInspectedBot(catalog, metadata, file);
     } catch (error) {
       catalog.errors.push({
         file: relative(directory, file),
@@ -75,6 +67,7 @@ export async function discoverBots(directory = BOT_DIRECTORY): Promise<BotCatalo
       worker.dispose();
     }
   }
+
   return catalog;
 }
 
@@ -84,16 +77,54 @@ export async function createControllers(
 ): Promise<BotController[]> {
   const controllers: WorkerBot[] = [];
   try {
-    for (const descriptor of descriptors) {
+    for (const descriptor of createBotLineup(descriptors)) {
       const controller = new WorkerBot(descriptor, config.decisionTimeoutMs);
       controllers.push(controller);
       await controller.init(`${config.seed}:bot:${descriptor.id}`);
-      if (controller.metadata.id !== descriptor.id)
-        throw new Error("Bot metadata changed since discovery; refresh the bot list");
+      validateDiscoveredMetadata(controller, descriptor);
     }
+
     return controllers;
   } catch (error) {
     for (const controller of controllers) controller.dispose();
+
     throw error;
   }
+}
+
+async function discoverBotFiles(directory: string): Promise<string[]> {
+  const files: string[] = [];
+  async function collectBotSourceFiles(folder: string): Promise<void> {
+    for (const entry of await readdir(folder, { withFileTypes: true })) {
+      const hiddenEntry = entry.name.startsWith("_") || entry.name.startsWith(".");
+      if (hiddenEntry) continue;
+
+      const file = join(folder, entry.name);
+      if (entry.isDirectory()) {
+        await collectBotSourceFiles(file);
+        continue;
+      }
+
+      const isFile = entry.isFile();
+      const isTypeScript = entry.name.endsWith(".ts");
+      const isTestOrDeclaration = /\.(test|spec|d)\.ts$/.test(entry.name);
+      const botSourceFile = isFile && isTypeScript && !isTestOrDeclaration;
+      if (botSourceFile) files.push(file);
+    }
+  }
+  await collectBotSourceFiles(directory);
+
+  return files;
+}
+
+function registerInspectedBot(catalog: BotCatalog, metadata: BotMetadata, file: string): void {
+  if (catalog.bots.some((bot) => bot.id === metadata.id))
+    throw new Error(`Duplicate bot ID: ${metadata.id}`);
+
+  catalog.bots.push({ ...metadata, file });
+}
+
+function validateDiscoveredMetadata(controller: WorkerBot, descriptor: BotDescriptor): void {
+  if (controller.metadata.id !== descriptor.id)
+    throw new Error("Bot metadata changed since discovery; refresh the bot list");
 }

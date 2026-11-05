@@ -16,5 +16,5 @@ export async function createGame(
   }
 }
 export async function runToEnd(game: Game) {
-  for (let i = game.result().ticks; i < game.config.ticks; i++) await game.step();
+  for (let index = game.result().ticks; index < game.config.ticks; index++) await game.step();
 }
