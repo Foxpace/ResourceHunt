@@ -21,3 +21,13 @@ export interface StepGameResponse {
   snapshot: Snapshot;
   result?: MatchResult;
 }
+
+export interface TournamentRoundRequest extends CreateGameRequest {
+  roundIndex: number;
+}
+
+export interface TournamentRound {
+  result: MatchResult;
+  /** Tick zero onward. Columns follow result.botOrder. */
+  scores: number[][];
+}
