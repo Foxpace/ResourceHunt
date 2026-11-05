@@ -1,129 +1,125 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Game } from "../src/engine/game.ts";
-import type { CreateGameRequest } from "../src/http/types.ts";
-import type { GameClient } from "../src/web/client.ts";
-import { Playback } from "../src/web/playback.ts";
-import { normalizeConfig } from "../src/engine/config.ts";
+import { assertPlayback, createLivePlayback } from "./helpers/playback-fixtures.ts";
 
-/** Run playback against the real engine without requiring a browser or HTTP server. */
-class LocalGameClient implements GameClient {
-  game?: Game;
-  steps = 0;
-  releases = 0;
+test("concurrent step requests share one live tick", async (context) => {
+  // Given
+  const { client, playback } = await createLivePlayback(context);
 
-  async create(request: CreateGameRequest) {
-    this.game = new Game(
-      request.botIds.map((id) => ({
-        metadata: { id, name: id, description: "Playback test" },
-        async decide() {
-          return { action: { type: "skip" } };
-        },
-        dispose() {},
-      })),
-      request.config,
-    );
-    return { id: "local", snapshot: this.game.snapshot() };
-  }
-  async step() {
-    this.steps++;
-    return { snapshot: await this.game!.step() };
-  }
-  async replay() {
-    return this.game!.replay();
-  }
-  async release() {
-    this.releases++;
-    this.game!.dispose();
-  }
+  // When
+  const firstStep = playback.step();
+  const repeatedStep = playback.step();
+  await firstStep;
+
+  // Then
+  assert.equal(repeatedStep, firstStep);
+  assert.equal(client.steps, 1);
+  assertPlayback(playback, { tick: 1 });
+});
+
+test("scrubbing recorded history does not advance the live engine", async (context) => {
+  // Given
+  const { client, playback } = await createLivePlayback(context);
+  await playback.step();
+
+  // When
+  await playback.seek(0);
+  const wasReplay = playback.isReplay;
+  await playback.step();
+
+  // Then
+  assert.equal(wasReplay, true);
+  assert.equal(client.steps, 1);
+  assertPlayback(playback, { tick: 1 });
+});
+
+test("stepping past recorded history resumes the live engine", async (context) => {
+  // Given
+  const { client, playback } = await createLivePlayback(context);
+  await playback.step();
+  await playback.seek(0);
+  await playback.step();
+
+  // When
+  await playback.step();
+
+  // Then
+  assert.equal(client.steps, 2);
+  assertPlayback(playback, { tick: 2 });
+});
+
+test("seeking during a tick waits and preserves the requested frame", async (context) => {
+  // Given
+  const { playback } = await createLivePlayback(context);
+  const pendingStep = playback.step();
+
+  // When
+  await playback.seek(0);
+  await pendingStep;
+
+  // Then
+  assertPlayback(playback, { tick: 0, length: 2, busy: false });
+});
+
+for (const source of ["live", "imported"] as const) {
+  test(`seeking beyond a partial ${source} match clamps to recorded ticks`, async (context) => {
+    // Given
+    const { client, playback } = await createLivePlayback(context, { ticks: 10 });
+    await playback.step();
+    if (source === "imported") await playback.load(await playback.export());
+
+    // When
+    await playback.seek(10);
+
+    // Then
+    assertPlayback(playback, { tick: 1 });
+    assert.equal(playback.snapshot!.config.ticks, 10);
+    assert.equal(client.steps, 1);
+    if (source === "imported") assert.equal(playback.canStep, false);
+  });
 }
 
-const request = { botIds: ["test"], config: normalizeConfig({ ticks: 3, width: 13, height: 13 }) };
+test("live and imported playback reach identical final states", async (context) => {
+  // Given
+  const { client, playback } = await createLivePlayback(context);
+  await playback.play(() => 1000);
+  const finalSnapshot = playback.snapshot;
+  const replay = await playback.export();
+  await playback.load(replay);
 
-test("playback serializes live ticks and scrubs history without advancing the engine", async () => {
-  const client = new LocalGameClient();
-  const playback = new Playback(client);
-  try {
-    await playback.create(request);
-    const first = playback.step();
-    assert.strictEqual(playback.step(), first);
-    await first;
-    assert.strictEqual(client.steps, 1);
-    assert.strictEqual(playback.snapshot!.tick, 1);
-    await playback.seek(0);
-    assert.strictEqual(playback.isReplay, true);
-    await playback.step();
-    assert.strictEqual(client.steps, 1);
-    assert.strictEqual(playback.snapshot!.tick, 1);
-    await playback.step();
-    assert.strictEqual(client.steps, 2);
-  } finally {
-    await playback.dispose();
-  }
-  assert.strictEqual(client.releases, 1);
+  // When
+  await playback.play(() => 1000);
+
+  // Then
+  assert.deepEqual(playback.snapshot, finalSnapshot);
+  assert.equal(finalSnapshot!.finished, true);
+  assert.equal(client.steps, 3);
+  assertPlayback(playback, { playing: false });
+  assert.deepEqual(await playback.export(), replay);
 });
 
-test("seeking during a live tick waits for it, then preserves the requested frame", async () => {
-  const playback = new Playback(new LocalGameClient());
-  try {
-    await playback.create(request);
-    const step = playback.step();
-    await playback.seek(0);
-    await step;
-    assert.strictEqual(playback.snapshot!.tick, 0);
-    assert.strictEqual(playback.length, 2);
-    assert.strictEqual(playback.isBusy, false);
-  } finally {
-    await playback.dispose();
-  }
+test("importing releases the live session and resets the cursor", async (context) => {
+  // Given
+  const { client, playback } = await createLivePlayback(context);
+  await playback.step();
+  const replay = await playback.export();
+
+  // When
+  await playback.load(replay);
+
+  // Then
+  assert.equal(client.releases, 1);
+  assertPlayback(playback, { tick: 0 });
 });
 
-test("seeking beyond recorded ticks clamps without advancing live or partial replay matches", async () => {
-  const client = new LocalGameClient();
-  const playback = new Playback(client);
-  try {
-    await playback.create({ ...request, config: { ...request.config, ticks: 10 } });
-    await playback.step();
-    await playback.seek(10);
-    assert.strictEqual(playback.snapshot!.tick, 1);
-    assert.strictEqual(client.steps, 1);
+test("disposing releases the live session exactly once", async (context) => {
+  // Given
+  const { client, playback } = await createLivePlayback(context);
 
-    await playback.seek(0);
-    assert.strictEqual(playback.snapshot!.tick, 0);
-    await playback.step();
-    assert.strictEqual(playback.snapshot!.tick, 1);
-    assert.strictEqual(client.steps, 1);
+  // When
+  await playback.dispose();
+  await playback.dispose();
 
-    const replay = await playback.export();
-    await playback.load(replay);
-    await playback.seek(10);
-    assert.strictEqual(playback.snapshot!.tick, 1);
-    assert.strictEqual(playback.snapshot!.config.ticks, 10);
-    assert.strictEqual(playback.canStep, false);
-    assert.strictEqual(client.steps, 1);
-  } finally {
-    await playback.dispose();
-  }
-});
-
-test("live and imported playback reach the same final state without rerunning decisions", async () => {
-  const client = new LocalGameClient();
-  const playback = new Playback(client);
-  try {
-    await playback.create(request);
-    await playback.play(() => 1000);
-    const final = playback.snapshot;
-    assert.strictEqual(final!.finished, true);
-    assert.strictEqual(playback.isPlaying, false);
-    const replay = await playback.export();
-    await playback.load(replay);
-    assert.strictEqual(client.releases, 1);
-    assert.strictEqual(playback.snapshot!.tick, 0);
-    await playback.play(() => 1000);
-    assert.deepStrictEqual(playback.snapshot, final);
-    assert.strictEqual(client.steps, 3);
-    assert.deepStrictEqual(await playback.export(), replay);
-  } finally {
-    await playback.dispose();
-  }
+  // Then
+  assert.equal(client.releases, 1);
 });
