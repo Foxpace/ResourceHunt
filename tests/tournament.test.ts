@@ -1,0 +1,126 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { createMatchStatistics } from "../src/engine/match-statistics.ts";
+import { DEFAULT_CONFIG } from "../src/engine/types.ts";
+import { createGameApi } from "../src/http/game-api.ts";
+import type { TournamentRound } from "../src/http/types.ts";
+import {
+  summarizeTournament,
+  Tournament,
+  tournamentBiomes,
+} from "../src/competition/tournament.ts";
+import { defaultBadgeOptions, selectAwards } from "../src/competition/awards.ts";
+
+test("a tournament stops at the win target and keeps score history for each replica", async (context) => {
+  // Given
+  const api = createGameApi();
+  context.after(() => api.dispose());
+  const tournament = createTestTournament(api);
+
+  // When
+  await tournament.run(
+    { config: { ...DEFAULT_CONFIG, ticks: 24 }, botIds: ["nearest", "nearest"] },
+    { winTarget: 3, badges: defaultBadgeOptions },
+    () => {},
+  );
+
+  // Then
+  assertTournament(tournament);
+});
+
+test("shared wins count toward the target and repeated biomes keep separate rounds", async (context) => {
+  // Given
+  const api = createGameApi();
+  context.after(() => api.dispose());
+  const tournament = createTestTournament(api);
+
+  // When
+  await tournament.run(
+    { config: { ...DEFAULT_CONFIG, ticks: 1 }, botIds: ["nearest", "nearest"] },
+    { winTarget: 9, badges: defaultBadgeOptions },
+    () => {},
+  );
+  // Then
+  assert.deepEqual([tournament.rounds.length, tournament.winners.length], [9, 2]);
+  assert.equal(tournament.rounds[8]!.result.config.biome, tournamentBiomes[0]);
+  assert.notEqual(
+    tournament.rounds[8]!.result.config.seed,
+    tournament.rounds[0]!.result.config.seed,
+  );
+});
+
+function createTestTournament(api: ReturnType<typeof createGameApi>): Tournament {
+  return new Tournament({
+    async tournamentRound(request) {
+      const response = await api.fetch(
+        new Request("http://localhost/api/tournament/round", {
+          method: "POST",
+          body: JSON.stringify(request),
+        }),
+      );
+      assert.equal(response.status, 200);
+      return (await response.json()) as TournamentRound;
+    },
+  });
+}
+
+function assertTournament(tournament: Tournament): void {
+  assert.equal(tournament.error, "");
+  const biomes = tournament.rounds.map(({ result }) => result.config.biome);
+  assert.deepEqual(biomes, tournamentBiomes.slice(0, biomes.length));
+  assert.ok(tournament.winners.length > 0);
+  const totals = summarizeTournament(tournament.rounds);
+  assert.equal(totals.length, 2);
+  assert.equal(Math.max(...totals.map((row) => row.wins)), 3);
+  for (const { result, scores } of tournament.rounds) {
+    assert.equal(scores.length, 25);
+    assert.deepEqual(scores[0], [0, 0]);
+    const final = result.botOrder.map((id) => result.standings.find((row) => row.id === id)!.score);
+    assert.deepEqual(scores.at(-1), final);
+  }
+  for (const row of totals) {
+    const scores = tournament.rounds.map(
+      ({ result }) => result.standings.find((standing) => standing.id === row.id)!.score,
+    );
+    assert.equal(
+      row.score,
+      scores.reduce((sum, score) => sum + score, 0),
+    );
+    assert.ok(row.statistics!.tilesWalked > 0);
+    assert.ok(row.badges > 0);
+  }
+}
+
+test("results pick three standout awards and five distinct random awards", () => {
+  // Given
+  const rows = awardRows();
+
+  // When
+  const awards = selectAwards(rows, "test-match");
+
+  // Then
+  assert.equal(awards.prominent.length, 3);
+  assert.equal(awards.extras.length, 5);
+  assert.equal(
+    new Set([...awards.prominent, ...awards.extras].map((award) => award.title)).size,
+    8,
+  );
+  assert.deepEqual(awards, selectAwards(rows, "test-match"));
+  assert.notDeepEqual(awards.extras, selectAwards(rows, "another-match").extras);
+});
+
+function awardRows() {
+  const earned = Object.fromEntries(Object.keys(createMatchStatistics()).map((key) => [key, 1]));
+  return [
+    {
+      id: "scout",
+      name: "Scout",
+      score: 20,
+      delivered: 5,
+      stolen: 1,
+      lost: 1,
+      captures: 1,
+      statistics: earned,
+    },
+  ];
+}
