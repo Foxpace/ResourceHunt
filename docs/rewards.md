@@ -28,7 +28,7 @@ A category awards a badge only when its highest recorded value is positive. Bots
 
 The results show up to three standout badges by default. Standouts are selected by the winner's proportional lead over the next score in that category. Up to five more badges are drawn from the remaining earned categories using the match seed. Badge selection has no effect on match points or wins.
 
-Change the badge limits under **Results and tournament options** in the browser, or use the CLI flags below. Each limit accepts values from zero to 30.
+Change the badge limits under **Display options** on the Results or Tournament tab in the browser, or use the CLI flags below. Each limit accepts values from zero to 30.
 
 ```sh
 yarn play --standout-badges 2 --random-badges 4

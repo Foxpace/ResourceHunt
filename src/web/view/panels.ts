@@ -1,6 +1,13 @@
 import type { MatchStatistics } from "../../engine/match-statistics.ts";
 import { inventoryWeight } from "../../engine/pathfinding.ts";
-import type { BotMetadata, BotState, GameEvent, Snapshot } from "../../engine/types.ts";
+import {
+  MAX_BOTS,
+  type BotMetadata,
+  type BotState,
+  type GameEvent,
+  type Snapshot,
+} from "../../engine/types.ts";
+import { botMonogram } from "./board-units.ts";
 
 export function escapeHtml(value: unknown): string {
   const entities: Record<string, string> = {
@@ -18,49 +25,78 @@ export function renderBotSelection(
   bots: readonly BotMetadata[],
   selected: readonly string[],
 ): string {
-  if (!bots.length) return '<p class="muted">No bots found.</p>';
+  if (!bots.length) return '<p class="muted">No bots found. Add one to the bots folder.</p>';
 
+  const full = selected.length >= MAX_BOTS;
   return bots
-    .map((bot) => renderBotOption(bot, selected.filter((id) => id === bot.id).length))
+    .map((bot) => renderBotOption(bot, { copies: countCopies(selected, bot.id), full }))
     .join("");
 }
 
-function renderBotOption(bot: BotMetadata, copies: number): string {
-  return `<div class="bot-card" title="${escapeHtml(bot.description)}">
-    <label class="bot-choice"><input class="bot-select" id="select-${escapeHtml(bot.id)}" type="checkbox" value="${escapeHtml(bot.id)}" ${copies ? "checked" : ""} />
-      <strong>${escapeHtml(bot.name)}</strong></label>
-    <label class="bot-copies-label"><span>Copies</span>
-      <input class="bot-copies" id="copies-${escapeHtml(bot.id)}" data-bot-id="${escapeHtml(bot.id)}" type="number" min="1" max="15"
-        value="${copies || 1}" aria-label="Copies of ${escapeHtml(bot.name)}" ${copies ? "" : "disabled"} required />
-    </label>
+function countCopies(selected: readonly string[], id: string): number {
+  return selected.filter((selectedId) => selectedId === id).length;
+}
+
+function renderBotOption(bot: BotMetadata, lineup: { copies: number; full: boolean }): string {
+  const { copies, full } = lineup;
+  const id = escapeHtml(bot.id);
+  const name = escapeHtml(bot.name);
+  return `<div class="roster-row${copies ? " is-active" : ""}" title="${escapeHtml(bot.description)}">
+    <label class="roster-pick"><input class="bot-select" id="select-${id}" type="checkbox" value="${id}" ${copies ? "checked" : ""} />
+      <span class="roster-avatar" aria-hidden="true">${escapeHtml(botMonogram(bot.name))}</span>
+      <span class="roster-text"><strong>${name}</strong><small>${escapeHtml(bot.description)}</small></span></label>
+    <div class="stepper">
+      <button class="bot-step" type="button" data-bot-id="${id}" data-delta="-1" aria-label="Remove a copy of ${name}" ${copies ? "" : "disabled"}>−</button>
+      <input class="bot-copies" id="copies-${id}" data-bot-id="${id}" type="number" min="0" max="${MAX_BOTS}"
+        value="${copies}" aria-label="Copies of ${name}" required />
+      <button class="bot-step" type="button" data-bot-id="${id}" data-delta="1" aria-label="Add a copy of ${name}" ${full ? "disabled" : ""}>+</button>
+    </div>
   </div>`;
 }
 
 export function renderStandings(state: Snapshot): string {
-  return [...state.bots]
-    .sort((first, second) => second.score - first.score)
-    .map((bot) => renderScoreCard(bot, state.config.capacity))
+  const ranked = [...state.bots].sort((first, second) => second.score - first.score);
+  const leaderScore = ranked[0]?.score ?? 0;
+
+  return ranked
+    .map((bot, index) => renderStanding(bot, { rank: index + 1, state, leaderScore }))
     .join("");
 }
 
-function renderScoreCard(bot: BotState, capacity: number): string {
+interface StandingContext {
+  rank: number;
+  state: Snapshot;
+  leaderScore: number;
+}
+
+function renderStanding(bot: BotState, standing: StandingContext): string {
+  const capacity = standing.state.config.capacity;
   const load = inventoryWeight(bot.inventory);
   const fillPercent = Math.min(100, (load / capacity) * 100);
-  const action = `${bot.captures} captures · ${bot.stolen} stolen · ${bot.lost} lost · ${bot.disabled ? "Disabled · " : ""}${bot.lastAction}${bot.errors ? ` · ${bot.errors} errors` : ""}`;
+  const leading = standing.rank === 1 && bot.score > 0;
+  const gap = standing.leaderScore - bot.score;
+  const status = bot.disabled ? "Disabled" : bot.lastAction;
 
   return `
-    <div class="score-card" style="--bot-color:${bot.color}" title="${escapeHtml(action)}">
-      <div class="score-card-head">
-        <span class="bot-dot" aria-hidden="true"></span>
-        <strong>${escapeHtml(bot.name)}</strong>
-        <span class="score-number" aria-label="${bot.score} points">${bot.score}</span>
+    <li class="standing${leading ? " is-leader" : ""}${bot.disabled ? " is-disabled" : ""}" style="--bot-color:${bot.color}" title="${escapeHtml(status)}">
+      <span class="standing-rank">${standing.rank}</span>
+      <span class="standing-token" aria-hidden="true">${escapeHtml(botMonogram(bot.name))}</span>
+      <div class="standing-body">
+        <div class="standing-top">
+          <strong>${escapeHtml(bot.name)}</strong>
+          <span class="standing-score" aria-label="${bot.score} points">${bot.score}</span>
+        </div>
+        <div class="cargo" aria-label="Inventory weight ${load} of ${capacity}" title="Cargo weight">
+          <div class="cargo-track"><i style="width:${fillPercent}%"></i></div>
+          <small>${load}/${capacity}</small>
+        </div>
+        <div class="standing-meta">
+          <span title="Outposts captured">⚑ ${bot.captures}</span><span title="Items stolen">⇆ ${bot.stolen}</span><span title="Items lost">↯ ${bot.lost}</span>
+          ${gap > 0 ? `<span class="standing-gap" title="Points behind the leader">−${gap}</span>` : ""}
+        </div>
+        ${bot.errors ? `<p class="bot-error">${bot.disabled ? "Disabled after errors" : `${bot.errors} errors`}</p>` : ""}
       </div>
-      <div class="bag-row" aria-label="Inventory weight ${load} of ${capacity}" title="Inventory weight">
-        <div class="bag-track"><div class="bag-fill" style="width:${fillPercent}%"></div></div>
-        <span>${load}/${capacity}</span>
-      </div>
-      ${bot.errors ? `<p class="bot-error">${bot.disabled ? "Disabled" : `${bot.errors} errors`}</p>` : ""}
-    </div>
+    </li>
   `;
 }
 
@@ -121,7 +157,7 @@ function renderStatistic(label: string, value: number): string {
 
 export function renderEventLog(bots: BotState[], events: GameEvent[]): string {
   if (!events.length) {
-    return '<p class="empty-log">No activity.</p>';
+    return '<p class="empty-log">Nothing has happened yet.</p>';
   }
 
   return events
@@ -130,8 +166,8 @@ export function renderEventLog(bots: BotState[], events: GameEvent[]): string {
 
       return `
       <div class="log-entry ${event.kind}" style="--bot-color:${bot.color}">
-        <small>T${String(event.tick).padStart(3, "0")} / ${escapeHtml(bot.name)}</small>
-        <p>${escapeHtml(event.message)}</p>
+        <span class="log-tick">T${event.tick}</span>
+        <p><b>${escapeHtml(bot.name)}</b> ${escapeHtml(event.message)}</p>
       </div>
     `;
     })

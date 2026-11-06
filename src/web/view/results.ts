@@ -1,5 +1,6 @@
-import { matchRows } from "../../competition/results.ts";
-import type { Snapshot } from "../../engine/types.ts";
+import { compareTournamentStandings, matchRows } from "../../competition/results.ts";
+import { BOT_COLORS, type Snapshot } from "../../engine/types.ts";
+import { botMonogram } from "./board-units.ts";
 import { selectAwards, type AwardRow, type BadgeOptions } from "../../competition/awards.ts";
 import { escapeHtml } from "./panels.ts";
 
@@ -13,10 +14,36 @@ export interface ResultOptions {
   mode?: "match" | "tournament" | "in-progress";
   badges?: BadgeOptions;
   hiddenColumns?: ReadonlySet<string>;
+  colors?: ReadonlyMap<string, string>;
+  podium?: boolean;
 }
 
 export function renderMatchResults(snapshot: Snapshot, options: ResultOptions): string {
-  return renderResults(matchRows(snapshot), snapshot.config.seed, options);
+  const colors = new Map(snapshot.bots.map((bot) => [bot.id, bot.color]));
+  return renderResults(matchRows(snapshot), snapshot.config.seed, { ...options, colors });
+}
+
+/** Colors follow the engine's participant order, so tournament rows match their arena tokens. */
+export function colorsByOrder(botOrder: readonly string[]): Map<string, string> {
+  return new Map(botOrder.map((id, index) => [id, BOT_COLORS[index % BOT_COLORS.length]!]));
+}
+
+export function renderPodium(rows: ResultRow[], options: ResultOptions = {}): string {
+  const ranked = rankedResults(rows, options).slice(0, 3);
+  const tournament = options.mode === "tournament";
+  const places = ranked.map((row, index) => {
+    const color = options.colors?.get(row.id) ?? "#c9eca1";
+    const detail = tournament ? `${row.wins ?? 0} round wins` : `${row.delivered} items banked`;
+    return `<li class="podium-place place-${index + 1}" style="--bot-color:${color}">
+      <span class="podium-token">${escapeHtml(botMonogram(row.name))}</span>
+      <strong>${escapeHtml(row.name)}</strong>
+      <span class="podium-score">${row.score}<small> pts</small></span>
+      <small>${detail}</small>
+      <span class="podium-step">${index + 1}</span>
+    </li>`;
+  });
+
+  return `<ol class="podium">${places.join("")}</ol>`;
 }
 
 export function renderResults(
@@ -28,13 +55,24 @@ export function renderResults(
   const columns = resultColumns(mode !== "match").filter(
     ({ label }) => !options.hiddenColumns?.has(label),
   );
-  const sorted = [...rows].sort((first, second) => second.score - first.score);
+  const sorted = rankedResults(rows, options);
   const body = sorted.map((row) => [
     `<th scope="row">${escapeHtml(row.name)}</th>`,
     ...columns.map(({ count }) => `<td>${escapeHtml(count(row) ?? "—")}</td>`),
   ]);
   const table = renderTable(["Bot", ...columns.map(({ label }) => label)], body);
-  return mode === "in-progress" ? table : table + renderAwards(rows, seed, options.badges);
+  if (mode === "in-progress") return table;
+
+  const podium = options.podium === false ? "" : renderPodium(rows, options);
+  return podium + "<h3>Standings</h3>" + table + renderAwards(rows, seed, options.badges);
+}
+
+function rankedResults(rows: ResultRow[], options: ResultOptions): ResultRow[] {
+  const tournament = options.mode === "tournament" || options.mode === "in-progress";
+  const compare = tournament
+    ? compareTournamentStandings
+    : (first: ResultRow, second: ResultRow) => second.score - first.score;
+  return [...rows].sort(compare);
 }
 
 function resultColumns(tournament: boolean) {
@@ -62,15 +100,25 @@ export const configurableResultColumns = resultColumns(false)
   .slice(1)
   .map(({ label }) => label);
 
-export function renderScoreProgress(rows: { name: string; score: number }[]): string {
+interface ScoreRow {
+  id: string;
+  name: string;
+  score: number;
+}
+
+export function renderScoreProgress(
+  rows: ScoreRow[],
+  colors?: ReadonlyMap<string, string>,
+): string {
   const sorted = [...rows].sort((first, second) => second.score - first.score);
-  return renderTable(
-    ["Bot", "Points"],
-    sorted.map(({ name, score }) => [
-      `<th scope="row">${escapeHtml(name)}</th>`,
-      `<td>${escapeHtml(score)}</td>`,
-    ]),
-  );
+  const best = Math.max(1, sorted[0]?.score ?? 0);
+  const bars = sorted.map(({ id, name, score }) => {
+    const color = colors?.get(id) ?? "#c9eca1";
+    return `<li style="--bot-color:${color}"><span>${escapeHtml(name)}</span>
+      <div class="score-bar"><i style="width:${(score / best) * 100}%"></i></div><b>${escapeHtml(score)}</b></li>`;
+  });
+
+  return `<ol class="score-bars" aria-label="Points at this tick">${bars.join("")}</ol>`;
 }
 
 function renderTable(headers: string[], rows: string[][]): string {

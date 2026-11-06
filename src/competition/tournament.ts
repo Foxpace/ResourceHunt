@@ -1,4 +1,5 @@
 import { defaultBadgeOptions, selectAwards, type BadgeOptions } from "./awards.ts";
+import { compareTournamentStandings } from "./results.ts";
 import { BIOMES } from "../engine/biomes.ts";
 import { createMatchStatistics } from "../engine/match-statistics.ts";
 import type { Biome, MatchResult, Standing } from "../engine/types.ts";
@@ -119,7 +120,7 @@ export function summarizeTournament(
     addRoundAwards(totals, result, badges);
   }
 
-  return [...totals.values()].sort((first, second) => second.score - first.score);
+  return [...totals.values()].sort(compareTournamentStandings);
 }
 
 function addRoundAwards(

@@ -2,6 +2,7 @@ import type { BotState } from "../types.ts";
 import { createWorldState } from "./generation.ts";
 import { sabotageDepot, repairDepot } from "./depot-sabotage.ts";
 import { deployCargoTrap, triggerCargoTrap, clearCargoTrap } from "./cargo-traps.ts";
+import { DroneMinds } from "./drone-minds.ts";
 import { advanceScavengerDrones, expireStolenDroneCargo } from "./scavenger-drones.ts";
 import { advanceCacheGuardians } from "./guardian-defense.ts";
 import { strikeNeutralEnemy, lootGuardianCache } from "./guardian-caches.ts";
@@ -12,6 +13,7 @@ import type { WorldCommand, WorldContext, WorldState, WorldTurn } from "./types.
 export class WorldController {
   readonly state: WorldState;
   private weather: NaturalEventScheduler;
+  private droneMinds = new DroneMinds();
 
   constructor(context: WorldContext) {
     this.state = createWorldState(context);
@@ -29,7 +31,7 @@ export class WorldController {
 
   finishTick(context: WorldContext): void {
     const turn = { context, state: this.state };
-    advanceScavengerDrones(turn);
+    advanceScavengerDrones(turn, this.droneMinds);
     advanceCacheGuardians(turn);
   }
 

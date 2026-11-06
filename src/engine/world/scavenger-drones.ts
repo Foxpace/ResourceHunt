@@ -1,6 +1,7 @@
 import { manhattanDistance } from "../grid.ts";
 import { DIRECTIONS, findPath, samePosition } from "../pathfinding.ts";
-import type { BotState, GameMap, Position } from "../types.ts";
+import type { BotState, Direction, Position } from "../types.ts";
+import { DroneMinds, retireDrone, type DroneMind } from "./drone-minds.ts";
 import { nearestPosition, patrolStep, traversableNeighbors } from "./neutral-movement.ts";
 import { getHazardMap } from "./hazard-map.ts";
 import {
@@ -14,18 +15,32 @@ import type { ScavengerDrone, WorldTurn } from "./types.ts";
 
 const STOLEN_CARGO_LIFETIME = 8;
 const DRONE_CARGO_CAPACITY = 4;
+const DETECTION_RANGE = 6;
+const PATROL_RADIUS = 3;
+const PATROL_MOVE_INTERVAL = 3;
+const PURSUIT_MOVE_INTERVAL = 2;
 
-export function advanceScavengerDrones(turn: WorldTurn): void {
+export function advanceScavengerDrones(turn: WorldTurn, minds: DroneMinds): void {
   for (const drone of turn.state.drones) {
     const destroyed = drone.health <= 0;
+    if (destroyed) continue;
+
+    const mind = minds.mindOf(turn, drone);
+    strikeAndRetire(turn, drone, mind);
     const waitingToMove = drone.nextMoveTick > turn.context.tick;
-    if (destroyed || waitingToMove) continue;
+    if (waitingToMove) continue;
 
-    attackExposedBot(turn, drone);
-    moveScavengerDrone(turn, drone);
+    moveScavengerDrone(turn, drone, mind);
+    strikeAndRetire(turn, drone, mind);
 
-    drone.nextMoveTick = turn.context.tick + 3;
+    const interval = mind.pursuing ? PURSUIT_MOVE_INTERVAL : PATROL_MOVE_INTERVAL;
+    drone.nextMoveTick = turn.context.tick + interval;
   }
+}
+
+function strikeAndRetire(turn: WorldTurn, drone: ScavengerDrone, mind: DroneMind): void {
+  const struck = attackExposedBot(turn, drone);
+  if (struck) retireDrone(mind, turn.context.tick);
 }
 
 export function releaseDroneCargo(turn: WorldTurn, drone: ScavengerDrone): void {
@@ -50,21 +65,28 @@ export function expireStolenDroneCargo(turn: WorldTurn): void {
   }
 }
 
-function moveScavengerDrone(turn: WorldTurn, drone: ScavengerDrone): void {
-  const target = chooseDroneTarget(turn, drone);
-  const map = getHazardMap(turn.context.map, turn.state, turn.context.tick);
-  const route = target ? findPath(map, drone.position, target) : null;
-  if (!route?.steps.length) {
-    drone.route = [];
-    const atTarget = target ? samePosition(drone.position, target) : false;
-    if (atTarget) return;
+function moveScavengerDrone(turn: WorldTurn, drone: ScavengerDrone, mind: DroneMind): void {
+  const beyondLeash = manhattanDistance(drone.position, mind.home) > mind.leash;
+  if (beyondLeash) retireDrone(mind, turn.context.tick);
 
-    patrolDrone(turn, drone, map);
+  const target = chooseDroneTarget(turn, drone, mind);
+  const goal = target ?? returnPoint(drone, mind);
+  const map = getHazardMap(turn.context.map, turn.state, turn.context.tick);
+  const route = goal ? findPath(map, drone.position, goal) : null;
+  mind.pursuing = !!target;
+  if (route?.steps.length) {
+    followRoute(drone, route.steps);
     return;
   }
 
+  drone.route = [];
+  const atGoal = goal ? samePosition(drone.position, goal) : false;
+  if (!atGoal) patrolDrone(turn, drone, mind);
+}
+
+function followRoute(drone: ScavengerDrone, steps: Direction[]): void {
   let position = { ...drone.position };
-  drone.route = route.steps.slice(0, 32).map((direction) => {
+  drone.route = steps.slice(0, 32).map((direction) => {
     const delta = DIRECTIONS[direction];
     position = { x: position.x + delta.x, y: position.y + delta.y };
 
@@ -74,18 +96,35 @@ function moveScavengerDrone(turn: WorldTurn, drone: ScavengerDrone): void {
   if (next) drone.position = next;
 }
 
-function patrolDrone(turn: WorldTurn, drone: ScavengerDrone, map: GameMap): void {
-  const candidates = traversableNeighbors(map, drone.position).filter(
-    (position) => !isSafeBase(turn, position),
-  );
+function returnPoint(drone: ScavengerDrone, mind: DroneMind): Position | undefined {
+  const farFromHome = manhattanDistance(drone.position, mind.home) > PATROL_RADIUS;
+
+  return farFromHome ? mind.home : undefined;
+}
+
+function patrolDrone(turn: WorldTurn, drone: ScavengerDrone, mind: DroneMind): void {
+  const map = getHazardMap(turn.context.map, turn.state, turn.context.tick);
+  const candidates = traversableNeighbors(map, drone.position).filter((position) => {
+    const safeBase = isSafeBase(turn, position);
+    const nearHome = manhattanDistance(position, mind.home) <= PATROL_RADIUS;
+
+    return !safeBase && nearHome;
+  });
   const next = patrolStep(candidates, turn.context.tick);
   if (next) drone.position = next;
 }
 
-function chooseDroneTarget(turn: WorldTurn, drone: ScavengerDrone): Position | undefined {
+function chooseDroneTarget(
+  turn: WorldTurn,
+  drone: ScavengerDrone,
+  mind: DroneMind,
+): Position | undefined {
+  const coolingDown = turn.context.tick < mind.retryAtTick;
+  if (coolingDown) return;
+
   const targets = turn.context.bots.filter((bot) => {
     const exposed = isExposedBot(turn, bot);
-    const withinDetectionRange = manhattanDistance(bot.position, drone.position) <= 6;
+    const withinDetectionRange = manhattanDistance(bot.position, drone.position) <= DETECTION_RANGE;
 
     return exposed && withinDetectionRange;
   });
@@ -102,10 +141,10 @@ function chooseDroneTarget(turn: WorldTurn, drone: ScavengerDrone): Position | u
   );
 }
 
-function attackExposedBot(turn: WorldTurn, drone: ScavengerDrone): void {
+function attackExposedBot(turn: WorldTurn, drone: ScavengerDrone): boolean {
   const tick = turn.context.tick;
   const attackCoolingDown = tick < (drone.nextAttackTick ?? 0);
-  if (attackCoolingDown) return;
+  if (attackCoolingDown) return false;
 
   const victim = turn.context.bots.find((bot) => {
     const exposed = isExposedBot(turn, bot);
@@ -113,7 +152,7 @@ function attackExposedBot(turn: WorldTurn, drone: ScavengerDrone): void {
 
     return exposed && sharesDroneTile;
   });
-  if (!victim) return;
+  if (!victim) return false;
 
   drone.nextAttackTick = tick + 6;
   countWorldAction(turn, victim.id, "droneStuns");
@@ -126,6 +165,8 @@ function attackExposedBot(turn: WorldTurn, drone: ScavengerDrone): void {
     position: victim.position,
     effect: "strike",
   });
+
+  return true;
 }
 
 function stealBotCargo(turn: WorldTurn, drone: ScavengerDrone, victim: BotState) {

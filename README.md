@@ -33,7 +33,7 @@ yarn dev
 
 Open [localhost:3000](http://127.0.0.1:3000). Use `PORT=3100 yarn dev` to change the port.
 
-Choose how many copies of each strategy to run, up to 15 total participants, then choose a map, then run, pause, or step through the match. The timeline lets you review completed ticks. Import and export replays to inspect runs later.
+The setup panel walks through the match in order. Pick **Single match** or **Tournament**, choose a biome from the live map previews, add copies of each strategy (up to 15 participants), and adjust the rules if you like. **Create match** builds the arena and tucks the setup away; reopen it with **Setup** in the top bar. Press the play button on the board, or <kbd>Space</kbd>, to start. Use <kbd>→</kbd> to step one tick. The timeline lets you review completed ticks. Import and export replays to inspect runs later.
 
 ## Benchmark
 
@@ -45,10 +45,10 @@ yarn bots
 yarn play --biome volcanic --seed training --ticks 300
 
 # Compare strategies across maps and base positions
-yarn bench --bots nearest,prospector,courier,strategist --matches 20 --seed training
+yarn bench --bots my-bot,nearest,nearest,nearest --matches 20 --seed training
 
 # Run multiple independent copies of one strategy
-yarn play --bots nearest,nearest,raider,strategist --seed replicas
+yarn play --bots nearest,nearest,nearest --seed replicas
 
 # Save JSON results and a replay
 yarn --silent play --seed training --json \
@@ -58,13 +58,13 @@ yarn --silent play --seed training --json \
 yarn --silent bench --matches 20 --json > results.json
 ```
 
-In the browser, open **Bot statistics** below the arena and select a participant. Counters follow the current tick during a live match or while scrubbing an exported replay. Older replay files can still show scores, items banked, captures, thefts, losses, and errors from their recorded frames.
+In the browser, open **Bot statistics** beside the leaderboard and select a participant. Counters follow the current tick during a live match or while scrubbing an exported replay. Older replay files can still show scores, items banked, captures, thefts, losses, and errors from their recorded frames.
 
-The **Results** tab opens when a match finishes and shows its final standings and achievements. It shows up to three standout awards and five more drawn from the remaining earned awards. See [rewards and achievements](docs/rewards.md) for resource values, badge rules, and tournament wins.
+When a match finishes, a victory card appears on the board. **View results** opens the **Results** tab with the podium, final standings, and achievements. It shows up to three standout awards and five more drawn from the remaining earned awards. See [rewards and achievements](docs/rewards.md) for resource values, badge rules, and tournament wins.
 
-Choose **Run tournament** to cycle through biomes without showing maps. The tournament ends when a bot reaches the win target, which defaults to three. Tied leaders share a round win. Standings rank bots by total points banked and show badge totals. Choose any completed round and move the tick slider to see how its scores changed.
+Switch the setup to **Tournament**, set the round wins needed, and choose **Start tournament** to cycle through biomes without showing maps. The tournament starts on the selected biome and ends when a bot reaches the win target, which defaults to three. Tied leaders share a round win. Standings rank bots by total points banked and show badge totals. Choose any completed round and move the tick slider to see how its scores changed.
 
-Open **Results and tournament options** to set the win target, choose how many badges are shown, or select the statistics columns to display.
+Open **Display options** on the Results or Tournament tab to choose how many badges are shown or select the statistics columns to display.
 
 The CLI uses the same tournament rules and badge selection as the browser. Use `--stats` to choose terminal columns. JSON retains the full statistics.
 
@@ -74,7 +74,7 @@ yarn tournament --wins 3 --biome forest --output results/tournament.json
 yarn inspect --input results/tournament.json
 yarn inspect --input results/tournament.json --round 2 --tick 45
 yarn inspect --input results/tournament.json --biome forest
-yarn inspect --input results/replay.json --tick 45 --bot raider --map
+yarn inspect --input results/replay.json --tick 45 --bot nearest --map
 ```
 
 Round numbers start at one and ticks start at zero. Use a round number when a biome was played more than once. An intermediate tournament tick shows the scores recorded at that point. A finished round also shows the match statistics and badges. Match replays include per-tick activity and any detailed bot counters recorded by that replay version.
@@ -136,9 +136,11 @@ Each `act(state)` receives a fresh snapshot of the full map, remaining resources
 
 Return `move` with direction `N`, `W`, `E`, or `S`, or return `grab`, `skip`, `home`, `capture`, or `steal` with a `targetId`. `home` takes one step toward the nearest owned bank. Arrival at your base or an owned outpost banks cargo automatically.
 
-The [SDK reference](docs/sdk.md) documents every helper, action, state field, and exported type, with examples for movement costs, pathfinding, and inventory. Start with the [included bots](bots/) for stronger strategies. `Math.random` is seeded per bot. Helpers beginning with `_` and test files are excluded from discovery; bot IDs must be unique lowercase letters, digits, or hyphens.
+The [SDK reference](docs/sdk.md) documents every helper, action, state field, and exported type, with examples for movement costs, pathfinding, and inventory. The included [nearest](bots/nearest.ts) bot is a deliberately simple baseline to beat. `Math.random` is seeded per bot. Helpers beginning with `_` and test files are excluded from discovery; bot IDs must be unique lowercase letters, digits, or hyphens.
 
 Workers enforce decision timeouts. Bots run with local Node.js filesystem and network permissions.
+
+For bot discovery details, lifecycle, tests, and evaluation, read [bot development context](docs/bot-development.md). For the AI-native workshop, start with [WORKSHOP.md](WORKSHOP.md): five Copilot agents take a team from intention to design, plan, build, and review, with one human-approved Markdown artifact per stage. Bot agents may inspect the game but change only their own bot's code and artifacts.
 
 ## Rules
 
@@ -155,7 +157,7 @@ Defaults: **33 × 25 grid, 300 ticks, four bots, capacity 8, 100 ms per decision
 - Only banked resources score. Ties share a rank; unbanked inventory earns nothing.
 - Invalid decisions cost a turn. A timed-out bot is disabled for the match.
 
-Hotspots, outposts, theft, sabotage, cargo traps, scavenger drones, guardian caches, and forecast natural events are enabled by default. The default lineup is Scout, Raider, Rover, and Strategist. [Raider](bots/raider.ts) weighs cache raids and short depot sabotage detours against bankable collection trips; [Strategist](bots/strategist.ts) combines collection with competition and defense. Read the [competitive world rules](docs/world.md) for counterplay and SDK examples. Adjust these settings under Advanced in the UI or through the CLI:
+Hotspots, outposts, theft, sabotage, cargo traps, scavenger drones, guardian caches, and forecast natural events are enabled by default. The only included bot is Scout ([nearest](bots/nearest.ts)): it walks to the closest resource that fits, grabs it, and banks when full or late. It ignores theft, outposts, and threats, which leaves those to your bot. Read the [competitive world rules](docs/world.md) for counterplay and SDK examples. Adjust these settings under Advanced in the UI or through the CLI:
 
 ```sh
 yarn play --hotspots 3 --outposts 2 --capture-turns 3 --capture-immunity 3 --steal-cooldown 5

@@ -15,9 +15,9 @@ export interface BotCatalog {
   errors: { file: string; error: string }[];
 }
 
-/** Demonstrate competitive play by default while retaining custom-folder discovery. */
+/** Start with the simple baseline, then fill the lineup with other discovered bots. */
 export function getDefaultBotIds(catalog: BotCatalog): string[] {
-  const preferred = ["nearest", "raider", "rover", "strategist"];
+  const preferred = ["nearest"];
   const available = new Set(catalog.bots.map((bot) => bot.id));
   const selected = new Set(
     [

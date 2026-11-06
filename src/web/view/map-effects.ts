@@ -44,14 +44,20 @@ function drawEventEffect(grid: CanvasGrid, event: GameEvent, progress: number): 
 
 function drawEffectLabel(grid: CanvasGrid, event: GameEvent, progress: number): void {
   const { context, cellSize } = grid;
-  context.font = `bold ${Math.max(9, cellSize * 0.44)}px ui-monospace, monospace`;
+  context.font = `800 ${Math.max(11, cellSize * 0.5)}px system-ui, sans-serif`;
   context.textAlign = "center";
+  context.lineWidth = 3;
+  context.strokeStyle = "#08110dcc";
   const label =
     event.effect === "bank"
       ? (event.message.match(/\+\d+/)?.[0] ?? "+")
       : event.effect === "impact"
         ? "!"
         : "";
+  if (!label) return;
+
+  context.globalAlpha = Math.min(1, (1 - progress) * 1.6);
+  context.strokeText(label, 0, -cellSize * (0.7 + progress));
   context.fillText(label, 0, -cellSize * (0.7 + progress));
 }
 

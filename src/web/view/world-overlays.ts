@@ -6,7 +6,7 @@ import {
   animatedGuardianPosition,
   type MapAnimation,
 } from "../model/map-motion.ts";
-import type { CanvasGrid } from "./canvas-grid.ts";
+import { drawAtCell, type CanvasGrid } from "./canvas-grid.ts";
 
 export class WorldOverlays {
   constructor(
@@ -30,12 +30,7 @@ export class WorldOverlays {
   }
 
   private atCell(position: Position, draw: (context: CanvasRenderingContext2D) => void): void {
-    const { context, cellWidth, cellHeight, cellSize } = this.grid;
-    context.save();
-    context.translate((position.x + 0.5) * cellWidth, (position.y + 0.5) * cellHeight);
-    context.scale(cellSize, cellSize);
-    draw(context);
-    context.restore();
+    drawAtCell(this.grid, position, draw);
   }
 
   private drawCache(cache: GuardianCache): void {
@@ -152,26 +147,38 @@ export class WorldOverlays {
 
   private drawHazard(hazard: NaturalHazard): void {
     const active = hazard.startsAt <= this.state.tick;
-    const fiery = hazard.kind === "lava" || hazard.kind === "wildfire";
-    const color = fiery ? "#ff9a4f" : hazard.kind === "meteors" ? "#c9a7ff" : "#8bd4ee";
+    const color = hazardColor(hazard);
+    const cells = new Set(hazard.cells.map(({ x, y }) => `${x},${y}`));
     for (const cell of hazard.cells) {
       this.atCell(cell, (context) => {
-        context.fillStyle = `${color}${active ? "55" : "18"}`;
-        context.strokeStyle = `${color}90`;
-        context.lineWidth = 0.045;
-        context.setLineDash(active ? [] : [0.13, 0.11]);
-        context.fillRect(-0.48, -0.48, 0.96, 0.96);
-        context.strokeRect(-0.43, -0.43, 0.86, 0.86);
+        context.fillStyle = `${color}${active ? "4a" : "1c"}`;
+        context.fillRect(-0.5, -0.5, 1, 1);
+        if (!active) drawHazardHatch(context, color);
+        context.strokeStyle = `${color}d0`;
+        context.lineWidth = active ? 0.07 : 0.05;
+        context.setLineDash(active ? [] : [0.14, 0.1]);
+        drawZoneEdges(context, { cell, cells });
         if (active) this.drawHazardMotion(context, hazard, cell);
       });
     }
+    this.drawHazardBadge(hazard, { active, color });
+  }
+
+  private drawHazardBadge(hazard: NaturalHazard, style: { active: boolean; color: string }): void {
+    const label = style.active ? "!" : String(hazard.startsAt - this.state.tick);
     this.atCell(hazard.center, (context) => {
-      context.fillStyle = "#08131fe6";
-      context.fillRect(-0.48, -0.3, 0.96, 0.6);
-      context.fillStyle = color;
-      context.font = "bold 0.33px monospace";
+      context.fillStyle = "#08131fee";
+      context.strokeStyle = style.color;
+      context.lineWidth = 0.06;
+      context.beginPath();
+      context.roundRect(-0.46, -0.27, 0.92, 0.54, 0.27);
+      context.fill();
+      context.stroke();
+      context.fillStyle = style.color;
+      context.font = "800 0.34px system-ui, sans-serif";
       context.textAlign = "center";
-      context.fillText(active ? "!" : String(hazard.startsAt - this.state.tick), 0, 0.12);
+      context.textBaseline = "middle";
+      context.fillText(label, 0, 0.02);
     });
   }
 
@@ -250,6 +257,47 @@ export class WorldOverlays {
       });
     }
   }
+}
+
+function hazardColor(hazard: NaturalHazard): string {
+  const fiery = hazard.kind === "lava" || hazard.kind === "wildfire";
+  if (fiery) return "#ff9a4f";
+
+  return hazard.kind === "meteors" ? "#c9a7ff" : "#8bd4ee";
+}
+
+function drawHazardHatch(context: CanvasRenderingContext2D, color: string): void {
+  context.strokeStyle = `${color}40`;
+  context.lineWidth = 0.05;
+  context.beginPath();
+  for (const offset of [-0.5, 0, 0.5]) {
+    context.moveTo(offset - 0.5, 0.5);
+    context.lineTo(offset + 0.5, -0.5);
+  }
+  context.stroke();
+}
+
+const EDGES = [
+  { dx: 0, dy: -1, from: [-0.5, -0.5], to: [0.5, -0.5] },
+  { dx: 1, dy: 0, from: [0.5, -0.5], to: [0.5, 0.5] },
+  { dx: 0, dy: 1, from: [-0.5, 0.5], to: [0.5, 0.5] },
+  { dx: -1, dy: 0, from: [-0.5, -0.5], to: [-0.5, 0.5] },
+] as const;
+
+/** Outlines only the zone boundary so a hazard reads as one area rather than many tiles. */
+function drawZoneEdges(
+  context: CanvasRenderingContext2D,
+  zone: { cell: Position; cells: ReadonlySet<string> },
+): void {
+  context.beginPath();
+  for (const edge of EDGES) {
+    const neighbor = `${zone.cell.x + edge.dx},${zone.cell.y + edge.dy}`;
+    if (zone.cells.has(neighbor)) continue;
+
+    context.moveTo(edge.from[0], edge.from[1]);
+    context.lineTo(edge.to[0], edge.to[1]);
+  }
+  context.stroke();
 }
 
 function drawHealthPips(context: CanvasRenderingContext2D, health: number): void {

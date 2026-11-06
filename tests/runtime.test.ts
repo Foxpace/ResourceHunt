@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeConfig } from "../src/engine/config.ts";
-import { discoverBots, getDefaultBotIds } from "../src/runtime/bots.ts";
+import { discoverBots, getDefaultBotIds, selectBots } from "../src/runtime/bots.ts";
 import { runBenchmark } from "../src/runtime/benchmark.ts";
 import { parseArguments, configFromFlags } from "../src/cli/options.ts";
 import {
@@ -17,9 +17,9 @@ import {
   runWorkerMatch,
 } from "./helpers/runtime-fixtures.ts";
 
-test("the default lineup follows discovery order and includes competitive bots", () => {
+test("the default lineup follows discovery order", () => {
   // Given
-  const ids = ["custom", "nearest", "rover", "strategist"];
+  const ids = ["custom", "nearest", "harbor", "comet"];
   const catalog = {
     bots: ids.map((id) => ({ id, name: id, description: "Test", file: `${id}.ts` })),
     errors: [],
@@ -69,7 +69,7 @@ test("CLI parsing rejects benchmark-only flags on the play command", () => {
 
 test("benchmarks rotate base slots, reuse seeds, and publish progress", async () => {
   // Given
-  const bots = (await discoverBots()).bots.slice(0, 2);
+  const bots = selectBots(await discoverBots(), ["nearest", "nearest"]);
   const botIds = bots.map((bot) => bot.id);
   const progress: number[] = [];
 
@@ -121,7 +121,7 @@ test("a newly discovered bot runs without registration", async (context) => {
   assert.equal(result.standings[0]!.errors, 0);
 });
 
-test("the sample catalog contains valid strategies including the strategist", async () => {
+test("the sample catalog contains the nearest baseline", async () => {
   // Given
   const discover = discoverBots;
 
@@ -130,8 +130,7 @@ test("the sample catalog contains valid strategies including the strategist", as
 
   // Then
   assert.deepEqual(catalog.errors, []);
-  assert.ok(catalog.bots.length >= 5);
-  assert.ok(catalog.bots.some((bot) => bot.id === "strategist"));
+  assert.ok(catalog.bots.some((bot) => bot.id === "nearest"));
 });
 
 test("sample bots reproduce identical full matches in workers", { timeout: 15000 }, async () => {

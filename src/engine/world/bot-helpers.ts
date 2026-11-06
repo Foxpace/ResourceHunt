@@ -134,15 +134,17 @@ function avoidScavenger(state: Observation): Action | undefined {
 
   const threats = state.world.drones.filter((drone) => {
     const ready = drone.health > 0 && (drone.nextAttackTick ?? 0) <= state.tick;
-    const withinReach = samePosition(drone.position, position);
-    const movesSoon = drone.nextMoveTick <= state.tick + 1;
-    return ready && withinReach && movesSoon;
+    const distance = manhattanDistance(drone.position, position);
+    const withinReach = distance === 0 || (distance === 1 && drone.nextMoveTick <= state.tick + 1);
+    return ready && withinReach;
   });
   if (!threats.length) return;
 
   const escape = getMoveOptions(state)
     .filter(({ passable, destination }) => {
-      const outsideReach = threats.every((drone) => !samePosition(drone.position, destination));
+      const outsideReach = threats.every(
+        (drone) => manhattanDistance(drone.position, destination) > 1,
+      );
       const hazardFree = getHazardsAt(state, destination).every(
         (hazard) => hazard.startsAt > state.tick + 2,
       );
@@ -159,7 +161,7 @@ export function protectDroneCrossing(state: Observation, action: Action): Action
   if (!isMovement || guarded) return action;
 
   const drones = state.world.drones.filter((drone) => {
-    const inRange = manhattanDistance(drone.position, state.self.position) === 1;
+    const inRange = manhattanDistance(drone.position, state.self.position) <= 2;
     const canAttack = drone.health > 0 && (drone.nextAttackTick ?? 0) <= state.tick + 1;
     return inRange && canAttack;
   });
@@ -174,11 +176,12 @@ export function protectDroneCrossing(state: Observation, action: Action): Action
     (bot) => manhattanDistance(bot.base, destination.destination) <= 3,
   );
   if (protectedAtBase) return action;
-
   const danger = drones.some((drone) => {
-    const entersDroneTile = samePosition(drone.position, destination.destination);
-    const canAttackBeforeNextAction = drone.nextMoveTick < state.tick + destination.cost;
-    return entersDroneTile && canAttackBeforeNextAction;
+    const distance = manhattanDistance(drone.position, destination.destination);
+    const sharesTile = distance === 0;
+    const approachesBeforeNextAction =
+      distance === 1 && drone.nextMoveTick < state.tick + destination.cost;
+    return sharesTile || approachesBeforeNextAction;
   });
   return danger ? { type: "guard" } : action;
 }

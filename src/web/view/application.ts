@@ -3,10 +3,8 @@ import { configurableResultColumns, renderMatchResults } from "./results.ts";
 import { TournamentView } from "./tournament.ts";
 import { AnimatedMapView } from "./animated-map.ts";
 import { renderWorldStatus } from "./world-status.ts";
-import { MAX_BOTS } from "../../engine/types.ts";
 import { BIOMES } from "../../engine/biomes.ts";
 import {
-  renderBotSelection,
   renderStandings,
   renderEventLog,
   renderBotStatistics,
@@ -14,7 +12,10 @@ import {
 } from "./panels.ts";
 import { ApplicationModel } from "../model/application.ts";
 import { attachMapTooltip } from "./map.ts";
-import { type Replay, type BotMetadata, type GameConfig } from "../../engine/types.ts";
+import { type Replay, type BotMetadata } from "../../engine/types.ts";
+import { SetupForm } from "./setup.ts";
+import { ArenaOverlays } from "./arena-overlays.ts";
+import { BIOME_AMBIENCE } from "./terrain-palette.ts";
 
 const getElement = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
@@ -22,6 +23,9 @@ const input = (id: string) => getElement<HTMLInputElement>(id);
 const tabs = ["arena", "results", "tournament"] as const;
 type CompetitionTab = (typeof tabs)[number];
 const button = (id: string) => getElement<HTMLButtonElement>(id);
+const EMPTY_RESULTS = `<div class="empty-state"><svg aria-hidden="true"><use href="#i-sliders" /></svg>
+  <h3>No results yet</h3><p>Finish a match to see the podium, standings, and badges.</p></div>`;
+
 /** DOM bindings render model state and translate browser events into intents. */
 export class ApplicationView {
   private hiddenResultColumns = new Set<string>();
@@ -34,7 +38,8 @@ export class ApplicationView {
   private renderedStatisticsOptions = "";
   private canvas = getElement<HTMLCanvasElement>("map");
   private mapView = new AnimatedMapView(this.canvas);
-  private biomeSelect = getElement<HTMLSelectElement>("biome");
+  private overlays = new ArenaOverlays();
+  private setup: SetupForm;
   private resizeObserver!: ResizeObserver;
   private unsubscribe!: () => void;
   private detachTooltip!: () => void;
@@ -44,24 +49,28 @@ export class ApplicationView {
     private tournament: TournamentView,
   ) {
     for (const tab of tabs) button(`tab-${tab}`).onclick = () => this.showTab(tab);
-    this.initializeBiomeOptions();
+    this.setup = new SetupForm(model);
     this.observeMap();
     this.bindConfigEvents();
     this.bindResultOptions();
     this.bindPlaybackEvents();
+    this.bindOverlayEvents();
     this.bindDialogs();
     getElement<HTMLDetailsElement>("bot-statistics").ontoggle = () => this.renderStatistics();
     getElement<HTMLSelectElement>("statistics-bot").onchange = () => this.renderStatistics();
     this.bindReplayEvents();
+    this.renderFinalResults(true);
   }
 
   dispose(): void {
     clearTimeout(this.toastTimer);
     this.resizeObserver.disconnect();
     this.mapView.dispose();
+    this.setup.dispose();
     this.tournament.tournament.dispose();
     this.unsubscribe();
     this.detachTooltip();
+    document.removeEventListener("keydown", this.onKeyDown);
   }
 
   private renderApplication() {
@@ -71,12 +80,9 @@ export class ApplicationView {
     button("refresh-bots").disabled = state.refreshing;
     button("generate").disabled = !state.canGenerate;
     this.renderTournamentButton();
-    button("generate").textContent = state.generating ? "Generating…" : "Generate";
-    getElement("selected-count").textContent = `${state.selectedBotIds.length}/${MAX_BOTS}`;
-    getElement("selected-count").classList.toggle(
-      "over-limit",
-      state.selectedBotIds.length > MAX_BOTS,
-    );
+    getElement("generate").querySelector("span")!.textContent = state.generating
+      ? "Creating…"
+      : "Create match";
 
     this.renderMessage(state.message);
     this.renderMatch();
@@ -96,83 +102,20 @@ export class ApplicationView {
       }, 7000);
   }
 
-  private renderBotOptions(force = false): void {
+  private renderBotOptions(): void {
     const state = this.model.state;
     const catalogChanged = this.renderedCatalog !== state.catalog;
     const selectionChanged = this.renderedSelection !== state.selectedBotIds;
-    if (!force && !catalogChanged && !selectionChanged) return;
+    if (!catalogChanged && !selectionChanged) return;
 
-    const focusedId = document.activeElement?.id;
     this.renderedCatalog = state.catalog;
     this.renderedSelection = state.selectedBotIds;
-    getElement("bot-list").innerHTML = renderBotSelection(state.catalog, state.selectedBotIds);
-    this.bindBotOptionControls();
-    if (focusedId) document.getElementById(focusedId)?.focus({ preventScroll: true });
-    this.fitMapDimensions();
-  }
-
-  private bindBotOptionControls(): void {
-    document.querySelectorAll<HTMLInputElement>(".bot-select").forEach((element) => {
-      element.onchange = () => {
-        void this.changeBotCopies(element.value, element.checked ? 1 : 0);
-      };
-    });
-    document.querySelectorAll<HTMLInputElement>(".bot-copies").forEach((element) => {
-      element.onchange = () => {
-        void this.changeBotCopies(element.dataset.botId!, element.valueAsNumber);
-      };
-    });
-  }
-
-  private async changeBotCopies(botId: string, copies: number): Promise<void> {
-    await this.model.dispatch({ type: "setBotCopies", botId, copies });
-    this.renderBotOptions(true);
-  }
-
-  private fitMapDimensions() {
-    const minimum = this.model.minimumMapDimension(
-      getElement<HTMLSelectElement>("biome").value as GameConfig["biome"],
-    );
-
-    for (const id of ["width", "height"]) {
-      input(id).min = String(minimum);
-      if (Number(input(id).value) < minimum) input(id).value = String(minimum);
-    }
-  }
-  private readGameConfigFromForm(): GameConfig {
-    return {
-      ...this.readWorldRules(),
-      biome: getElement<HTMLSelectElement>("biome").value as GameConfig["biome"],
-      width: Number(input("width").value),
-      height: Number(input("height").value),
-      ticks: Number(input("ticks").value),
-      seed: input("seed").value,
-      baseLayout: getElement<HTMLSelectElement>("layout").value as GameConfig["baseLayout"],
-      resourceDensity: Number(input("resources").value) / 100,
-      terrainDensity: Number(input("terrain").value) / 100,
-      capacity: Number(input("capacity").value),
-      decisionTimeoutMs: Number(input("timeout").value),
-      hotspotCount: Number(input("hotspots").value),
-      outpostCount: Number(input("outposts").value),
-      captureTurns: Number(input("capture-turns").value),
-      captureImmunityTicks: Number(input("capture-immunity").value),
-      stealing: input("stealing").checked,
-      stealCooldownTicks: Number(input("steal-cooldown").value),
-    };
-  }
-  private readWorldRules() {
-    return {
-      sabotage: input("sabotage").checked,
-      cargoTraps: input("cargo-traps").checked,
-      naturalEvents: input("natural-events").checked,
-      scavengerCount: Number(input("scavengers").value),
-      guardianCount: Number(input("guardians").value),
-    };
+    this.setup.renderLineup();
   }
 
   private matchRequest() {
     return {
-      config: this.readGameConfigFromForm(),
+      config: this.setup.readConfig(),
       botIds: [...this.model.state.selectedBotIds],
     };
   }
@@ -186,10 +129,7 @@ export class ApplicationView {
     if (!this.model.state.canGenerate) return;
     this.model.playback.pause();
     this.showTab("tournament");
-    const options = {
-      winTarget: input("tournament-win-target").valueAsNumber,
-      badges: this.badgeOptions(),
-    };
+    const options = { winTarget: this.setup.winTarget, badges: this.badgeOptions() };
     void this.tournament.run(this.matchRequest(), options, () => this.renderTournamentButton());
   }
 
@@ -197,16 +137,22 @@ export class ApplicationView {
     const running = this.tournament.tournament.running;
     const run = button("run-tournament");
     run.disabled = running || !this.model.state.canGenerate;
-    run.textContent = running ? "Tournament running…" : "Run tournament";
+    run.querySelector("span")!.textContent = running ? "Tournament running…" : "Start tournament";
+    const unseen = this.activeTab !== "tournament";
+    const hasRounds = this.tournament.tournament.rounds.length > 0;
+    if (unseen && hasRounds) button("tab-tournament").classList.add("has-news");
   }
 
   private showTab(active: CompetitionTab): void {
     this.activeTab = active;
+    document.body.dataset.view = active;
     for (const tab of tabs) {
       const selected = tab === active;
       getElement(`panel-${tab}`).hidden = !selected;
       button(`tab-${tab}`).setAttribute("aria-pressed", String(selected));
     }
+    button(`tab-${active}`).classList.remove("has-news");
+    if (active === "arena") this.mapView.resize();
   }
 
   private renderFinalResults(refresh = false): void {
@@ -220,10 +166,12 @@ export class ApplicationView {
           badges: this.badgeOptions(),
           hiddenColumns: this.hiddenResultColumns,
         })
-      : '<p class="muted">Finish a match to see its results.</p>';
-    const viewingArena = this.activeTab === "arena";
-    if (final && changed && viewingArena) this.showTab("results");
+      : EMPTY_RESULTS;
+    const unseen = this.activeTab !== "results";
+    const fresh = !!final && changed;
+    if (unseen && fresh) button("tab-results").classList.add("has-news");
   }
+
   private badgeOptions() {
     return {
       standout: input("standout-badges").valueAsNumber,
@@ -235,6 +183,7 @@ export class ApplicationView {
     const fields = getElement("result-columns");
     for (const name of configurableResultColumns) {
       const label = document.createElement("label");
+      label.className = "switch";
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.checked = true;
@@ -244,23 +193,47 @@ export class ApplicationView {
         this.renderFinalResults(true);
         this.tournament.setHiddenColumns(this.hiddenResultColumns);
       };
-      label.append(checkbox, name);
+      label.append(checkbox, document.createElement("i"), name);
       fields.append(label);
     }
     input("standout-badges").onchange = () => this.renderFinalResults(true);
     input("random-badges").onchange = () => this.renderFinalResults(true);
   }
+
   private renderControls() {
     const controls = this.model.playbackControls;
-    button("play").disabled = !controls.canPlay;
-    button("play").textContent = controls.playLabel;
+    const play = button("play");
+    play.disabled = !controls.canPlay;
+    play.querySelector("span")!.textContent = controls.playLabel;
+    const icon = { Pause: "#i-pause", Replay: "#i-replay" }[controls.playLabel] ?? "#i-play";
+    play.querySelector("use")!.setAttribute("href", icon);
+    play.classList.toggle("is-playing", this.model.playback.isPlaying);
     button("step").disabled = !controls.canStep;
     button("export").disabled = !controls.canExport;
-    input("timeline").disabled = !controls.canSeek;
-    input("timeline").max = String(controls.maxTick);
-    input("timeline").value = String(controls.tick);
+    const timeline = input("timeline");
+    timeline.disabled = !controls.canSeek;
+    timeline.max = String(controls.maxTick);
+    timeline.value = String(controls.tick);
+    timeline.style.setProperty(
+      "--progress",
+      `${(controls.tick / Math.max(1, controls.maxTick)) * 100}%`,
+    );
     getElement("playback-mode").hidden = !controls.isReplay;
+    this.renderOverlays();
   }
+
+  private renderOverlays(): void {
+    const controls = this.model.playbackControls;
+    const playback = this.model.playback;
+    const state = {
+      snapshot: playback.snapshot,
+      playing: playback.isPlaying,
+      canPlay: controls.canPlay,
+      isReplay: controls.isReplay,
+    };
+    this.overlays.render(state, playback.finalSnapshot);
+  }
+
   private renderMatch() {
     const state = this.model.playback.snapshot;
     if (!state) {
@@ -269,13 +242,7 @@ export class ApplicationView {
     }
 
     getElement("map-empty").hidden = true;
-    getElement("competition-rules").textContent =
-      `Capture: ${state.config.captureTurns} turns; immunity: ${state.config.captureImmunityTicks} following rounds. ${state.config.stealing ? `Theft cooldown: ${state.config.stealCooldownTicks} ticks. Both participants are protected for the following tick.` : "Cargo theft disabled."}`;
-    getElement("map").setAttribute(
-      "aria-label",
-      `${BIOMES[state.config.biome].name} map with ${state.hotspots.length} hotspots and ${state.outposts.length} outposts`,
-    );
-
+    this.renderMatchContext(state);
     getElement("tick-label").textContent = `${state.tick} / ${state.config.ticks}`;
     getElement("standings").innerHTML = renderStandings(state);
     this.renderStatistics();
@@ -283,11 +250,26 @@ export class ApplicationView {
       state.bots,
       this.model.playback.recentEvents(),
     );
-    getElement("map-container").style.aspectRatio = `${state.map.width}/${state.map.height}`;
     this.renderControls();
     getElement("world-status").innerHTML = renderWorldStatus(state);
     this.mapView.update(state);
   }
+
+  private renderMatchContext(state: Snapshot): void {
+    const { config } = state;
+    getElement("competition-rules").textContent =
+      `Capture: ${config.captureTurns} turns; immunity: ${config.captureImmunityTicks} following rounds. ${config.stealing ? `Theft cooldown: ${config.stealCooldownTicks} ticks. Both participants are protected for the following tick.` : "Cargo theft disabled."}`;
+    getElement("map").setAttribute(
+      "aria-label",
+      `${BIOMES[config.biome].name} map with ${state.hotspots.length} hotspots and ${state.outposts.length} outposts`,
+    );
+    getElement("map-container").style.setProperty(
+      "--map-aspect",
+      `${state.map.width / state.map.height}`,
+    );
+    document.body.style.setProperty("--ambience", BIOME_AMBIENCE[config.biome]);
+  }
+
   private renderStatistics(): void {
     const state = this.model.playback.snapshot;
     if (!state) return;
@@ -308,69 +290,82 @@ export class ApplicationView {
     getElement("bot-statistics-values").innerHTML = renderBotStatistics(state, select.value);
   }
 
-  private renderBiomeDescription() {
-    getElement("biome-description").textContent =
-      BIOMES[this.biomeSelect.value as GameConfig["biome"]].description;
-  }
-  private initializeBiomeOptions(): void {
-    for (const [id, biome] of Object.entries(BIOMES)) {
-      const option = document.createElement("option");
-      option.value = id;
-      option.textContent = biome.name;
-      this.biomeSelect.append(option);
-    }
-
-    this.biomeSelect.onchange = () => {
-      this.renderBiomeDescription();
-      this.fitMapDimensions();
-    };
-    this.renderBiomeDescription();
-  }
-
   private observeMap(): void {
     this.resizeObserver = new ResizeObserver(() => {
       this.mapView.resize();
     });
     this.resizeObserver.observe(getElement("map-container"));
-    this.detachTooltip = attachMapTooltip(
-      this.canvas,
-      getElement("map-tooltip"),
-      () => this.model.playback.snapshot,
-    );
+    this.detachTooltip = attachMapTooltip({
+      canvas: this.canvas,
+      tooltip: getElement("map-tooltip"),
+      getSnapshot: () => this.model.playback.snapshot,
+      onHover: (cell) => this.mapView.setHover(cell),
+    });
     this.unsubscribe = this.model.subscribe(() => this.renderApplication());
   }
 
   private bindConfigEvents(): void {
     getElement("config-form").addEventListener("submit", (event) => {
       event.preventDefault();
-      if ((event as SubmitEvent).submitter === button("run-tournament")) this.runTournament();
+      if (!this.model.state.canGenerate) return;
+
+      this.setup.setCollapsed(true);
+      if (this.setup.mode === "tournament") this.runTournament();
       else void this.generateMatch();
     });
-    button("shuffle").onclick = () => {
-      input("seed").value = `field-${crypto.getRandomValues(new Uint32Array(1))[0]!.toString(36)}`;
-    };
     button("refresh-bots").onclick = () => {
       void this.model.dispatch({ type: "refreshBots" });
     };
+    button("tournament-setup").onclick = () => {
+      this.setup.setMode("tournament");
+      this.setup.setCollapsed(false);
+      getElement("step-tournament").scrollIntoView({ behavior: "smooth", block: "center" });
+      input("tournament-win-target").focus({ preventScroll: true });
+    };
+  }
 
-    for (const id of ["resources", "terrain"])
-      input(id).oninput = () => {
-        getElement(`${id}-value`).textContent = `${input(id).value}%`;
-      };
+  private togglePlayback(): void {
+    void this.model.dispatch({
+      type: "togglePlayback",
+      getSpeed: () =>
+        Number(document.querySelector<HTMLInputElement>('input[name="speed"]:checked')?.value ?? 8),
+    });
   }
 
   private bindPlaybackEvents(): void {
-    button("play").onclick = () => {
-      void this.model.dispatch({
-        type: "togglePlayback",
-        getSpeed: () => Number(getElement<HTMLSelectElement>("speed").value),
-      });
-    };
+    button("play").onclick = () => this.togglePlayback();
+    button("ready-play").onclick = () => this.togglePlayback();
     button("step").onclick = () => {
       void this.model.dispatch({ type: "stepPlayback" });
     };
     input("timeline").oninput = () => {
       void this.model.dispatch({ type: "seekPlayback", tick: Number(input("timeline").value) });
+    };
+    document.addEventListener("keydown", this.onKeyDown);
+  }
+
+  private onKeyDown = (event: KeyboardEvent): void => {
+    const target = event.target as HTMLElement;
+    const typing = target.matches("input, select, textarea, button, summary, a, [contenteditable]");
+    const modified = event.metaKey || event.ctrlKey || event.altKey;
+    const arena = this.activeTab === "arena";
+    if (typing || modified || !arena) return;
+
+    const control = { " ": button("play"), ArrowRight: button("step") }[event.key];
+    const usable = !!control && !control.disabled;
+    if (!usable) return;
+
+    event.preventDefault();
+    control.click();
+  };
+
+  private bindOverlayEvents(): void {
+    button("finish-results").onclick = () => {
+      this.overlays.dismissFinish(this.model.playback.finalSnapshot);
+      this.showTab("results");
+    };
+    button("finish-close").onclick = () => {
+      this.overlays.dismissFinish(this.model.playback.finalSnapshot);
     };
   }
 

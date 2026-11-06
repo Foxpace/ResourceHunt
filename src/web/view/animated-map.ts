@@ -1,9 +1,10 @@
-import type { Snapshot } from "../../engine/types.ts";
+import type { Position, Snapshot } from "../../engine/types.ts";
 import { MapMotion } from "../model/map-motion.ts";
 import { drawMap, releaseTerrainCache } from "./map.ts";
 
 export class AnimatedMapView {
   private state?: Snapshot;
+  private hover?: Position;
   private motion = new MapMotion();
   private frameId = 0;
   private disposed = false;
@@ -21,6 +22,14 @@ export class AnimatedMapView {
   }
 
   resize(): void {
+    this.renderFrame();
+  }
+
+  setHover(cell?: Position): void {
+    const unchanged = this.hover?.x === cell?.x && this.hover?.y === cell?.y;
+    if (unchanged) return;
+
+    this.hover = cell;
     this.renderFrame();
   }
 
@@ -43,11 +52,10 @@ export class AnimatedMapView {
     if (!state) return;
     if (this.disposed) return;
 
-    drawMap(
-      this.canvas,
-      state,
-      this.motion.animation(performance.now(), this.reducedMotion.matches),
-    );
+    drawMap(this.canvas, state, {
+      animation: this.motion.animation(performance.now(), this.reducedMotion.matches),
+      hover: this.hover,
+    });
   }
 
   private scheduleFrame(): void {

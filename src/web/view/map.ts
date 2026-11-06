@@ -1,36 +1,42 @@
-import { createCanvasGrid, type CanvasGrid } from "./canvas-grid.ts";
+import { createCanvasGrid, drawAtCell, type CanvasGrid } from "./canvas-grid.ts";
 import { describeMapCell } from "../model/map-description.ts";
-import { samePosition } from "../../engine/pathfinding.ts";
-import {
-  RESOURCES,
-  type BotState,
-  type Hotspot,
-  type Outpost,
-  type ResourcePile,
-  type Snapshot,
-  type Position,
-} from "../../engine/types.ts";
+import type { Position, Snapshot } from "../../engine/types.ts";
 
 import { drawCachedTerrain, releaseTerrainCache } from "./terrain-cache.ts";
 import { WorldOverlays } from "./world-overlays.ts";
 import { drawMapEffects } from "./map-effects.ts";
-import { animatedBotPosition, type MapAnimation } from "../model/map-motion.ts";
+import { BoardSites } from "./board-sites.ts";
+import { BoardUnits } from "./board-units.ts";
+import { drawLiquidMotion } from "./liquid-motion.ts";
+import type { MapAnimation } from "../model/map-motion.ts";
 export { releaseTerrainCache };
 
-export function drawMap(canvas: HTMLCanvasElement, state: Snapshot, animation?: MapAnimation) {
+export interface MapScene {
+  animation?: MapAnimation;
+  hover?: Position;
+}
+
+export function drawMap(canvas: HTMLCanvasElement, state: Snapshot, scene: MapScene = {}) {
   const grid = prepareCanvasGrid(canvas, state);
   if (!grid) return;
+
+  const { animation, hover } = scene;
   drawCachedTerrain(canvas, grid, state);
-  const overlays = new MapOverlays(grid, state, animation);
-  for (const hotspot of state.hotspots) overlays.drawHotspot(hotspot);
-  for (const outpost of state.outposts) overlays.drawOutpost(outpost);
-  for (const resource of state.resources) overlays.drawResource(resource);
-  for (const bot of state.bots) overlays.drawBase(bot);
+  drawLiquidMotion(grid, state, animation?.time ?? 0);
+  const sites = new BoardSites(grid, state, animation?.time);
+  for (const hotspot of state.hotspots) sites.drawHotspot(hotspot);
+  for (const bot of state.bots) sites.drawBase(bot);
+  for (const outpost of state.outposts) sites.drawOutpost(outpost);
+  for (const resource of state.resources) sites.drawResource(resource);
 
   new WorldOverlays(grid, state, animation).draw();
-  for (const bot of state.bots) overlays.drawBot(bot);
+  const units = new BoardUnits(grid, state, animation);
+  for (const bot of state.bots) units.drawTrail(bot);
+  if (hover) drawHoverCell(grid, hover);
+  for (const bot of state.bots) units.drawBot(bot);
 
   drawMapEffects(grid, animation);
+  if (hover) units.drawLabels(hover);
 }
 
 function prepareCanvasGrid(canvas: HTMLCanvasElement, state: Snapshot): CanvasGrid | undefined {
@@ -54,223 +60,39 @@ function prepareCanvasGrid(canvas: HTMLCanvasElement, state: Snapshot): CanvasGr
   });
 }
 
-class MapOverlays {
-  constructor(
-    private grid: CanvasGrid,
-    private state: Snapshot,
-    private animation?: MapAnimation,
-  ) {}
-
-  private get context() {
-    return this.grid.context;
-  }
-  private get cellWidth() {
-    return this.grid.cellWidth;
-  }
-  private get cellHeight() {
-    return this.grid.cellHeight;
-  }
-  private get cellSize() {
-    return this.grid.cellSize;
-  }
-
-  drawHotspot(hotspot: Hotspot): void {
-    const centerX = (hotspot.x + 0.5) * this.cellWidth,
-      centerY = (hotspot.y + 0.5) * this.cellHeight;
-    const radius = hotspot.radius + 0.55;
-    this.context.save();
-    this.context.strokeStyle = "#e3ca7880";
-    this.context.fillStyle = "#e3ca780c";
-    this.context.setLineDash([3, 4]);
-    this.context.lineWidth = 1;
-    this.context.beginPath();
-    this.context.moveTo(centerX, centerY - radius * this.cellHeight);
-    this.context.lineTo(centerX + radius * this.cellWidth, centerY);
-    this.context.lineTo(centerX, centerY + radius * this.cellHeight);
-    this.context.lineTo(centerX - radius * this.cellWidth, centerY);
-    this.context.closePath();
-    this.context.fill();
-    this.context.stroke();
-    this.context.restore();
-  }
-
-  drawOutpost(post: Outpost): void {
-    const centerX = (post.x + 0.5) * this.cellWidth,
-      centerY = (post.y + 0.5) * this.cellHeight;
-    const owner = this.state.bots.find((bot) => bot.id === post.ownerId);
-    const capturer = this.state.bots.find((bot) => bot.id === post.capturingBotId);
-    this.context.fillStyle = "#102016";
-    this.context.fillRect(
-      centerX - this.cellSize * 0.43,
-      centerY - this.cellSize * 0.43,
-      this.cellSize * 0.86,
-      this.cellSize * 0.86,
-    );
-    this.context.strokeStyle = owner?.color ?? "#c9d4c1";
-    this.context.lineWidth = 1.4;
-    this.context.strokeRect(
-      centerX - this.cellSize * 0.4,
-      centerY - this.cellSize * 0.4,
-      this.cellSize * 0.8,
-      this.cellSize * 0.8,
-    );
-    this.drawOutpostFlag(centerX, centerY, owner?.color ?? "#c9d4c1");
-    if (capturer) this.drawCaptureProgress(post, capturer, { x: centerX, y: centerY });
-  }
-
-  private drawOutpostFlag(centerX: number, centerY: number, color: string): void {
-    this.context.beginPath();
-    this.context.moveTo(centerX - this.cellSize * 0.15, centerY + this.cellSize * 0.27);
-    this.context.lineTo(centerX - this.cellSize * 0.15, centerY - this.cellSize * 0.27);
-    this.context.stroke();
-    this.context.fillStyle = color;
-    this.context.beginPath();
-    this.context.moveTo(centerX - this.cellSize * 0.15, centerY - this.cellSize * 0.27);
-    this.context.lineTo(centerX + this.cellSize * 0.3, centerY - this.cellSize * 0.1);
-    this.context.lineTo(centerX - this.cellSize * 0.15, centerY + this.cellSize * 0.05);
-    this.context.fill();
-  }
-
-  drawResource(pile: ResourcePile): void {
-    const x = (pile.x + 0.5) * this.cellWidth,
-      y = (pile.y + 0.5) * this.cellHeight,
-      radius = this.cellSize * 0.2;
-    this.context.fillStyle = "#112018aa";
-    this.context.beginPath();
-    this.context.arc(x, y, radius * 1.6, 0, Math.PI * 2);
-    this.context.fill();
-    this.context.fillStyle = RESOURCES[pile.kind].color;
-    this.drawResourceGlyph(pile, { x, y }, radius);
-  }
-
-  drawBase(bot: BotState): void {
-    const x = bot.base.x * this.cellWidth,
-      y = bot.base.y * this.cellHeight;
-    this.context.fillStyle = bot.color + "33";
-    this.context.fillRect(
-      x - this.cellWidth * 0.1,
-      y - this.cellHeight * 0.1,
-      this.cellWidth * 1.2,
-      this.cellHeight * 1.2,
-    );
-    this.context.strokeStyle = bot.color;
-    this.context.lineWidth = 1.3;
-    this.context.strokeRect(x + 0.5, y + 0.5, this.cellWidth - 1, this.cellHeight - 1);
-    this.context.fillStyle = bot.color;
-    this.context.font = `bold ${this.cellSize * 0.65}px monospace`;
-    this.context.textAlign = "center";
-    this.context.textBaseline = "middle";
-    this.context.fillText("⌂", x + this.cellWidth * 0.5, y + this.cellHeight * 0.52);
-  }
-
-  drawBot(bot: BotState): void {
-    const collocated = this.state.bots.filter((other) =>
-      samePosition(other.position, bot.position),
-    );
-    const offset =
-      collocated.length > 1
-        ? (collocated.indexOf(bot) - (collocated.length - 1) / 2) * this.cellSize * 0.27
-        : 0;
-    const position = animatedBotPosition(bot, this.animation);
-    const x = (position.x + 0.5) * this.cellWidth + offset,
-      y = (position.y + 0.5) * this.cellHeight;
-    this.drawBotBody(bot, { x, y });
-  }
-
-  private drawBotBody(bot: BotState, position: Position): void {
-    const { x, y } = position;
-    this.context.save();
-    this.context.shadowColor = bot.color;
-    this.context.shadowBlur = bot.disabled ? 0 : 9;
-    this.context.fillStyle = "#0e1c12";
-    this.context.beginPath();
-    this.context.arc(x, y + 1, this.cellSize * 0.43, 0, Math.PI * 2);
-    this.context.fill();
-    this.context.fillStyle = bot.disabled ? "#63715e" : bot.color;
-    this.context.beginPath();
-    this.context.arc(x, y, this.cellSize * 0.33, 0, Math.PI * 2);
-    this.context.fill();
-    this.context.fillStyle = "#1b281f";
-    this.context.fillRect(
-      x - this.cellSize * 0.17,
-      y - this.cellSize * 0.08,
-      this.cellSize * 0.34,
-      this.cellSize * 0.14,
-    );
-    this.context.shadowBlur = 0;
-    this.drawBotBadges(bot, x, y);
-    this.context.restore();
-  }
-
-  private drawCaptureProgress(post: Outpost, capturer: BotState, center: Position): void {
-    const { x: centerX, y: centerY } = center;
-
-    this.context.strokeStyle = capturer.color;
-    this.context.lineWidth = 2;
-    this.context.beginPath();
-    this.context.arc(
-      centerX,
-      centerY,
-      this.cellSize * 0.5,
-      -Math.PI / 2,
-      -Math.PI / 2 + (Math.PI * 2 * post.captureProgress) / this.state.config.captureTurns,
-    );
-    this.context.stroke();
-  }
-
-  private drawResourceGlyph(pile: ResourcePile, center: Position, radius: number): void {
-    const { x, y } = center;
-
-    if (pile.kind === "ore") {
-      this.context.beginPath();
-      this.context.arc(x, y, radius, 0, Math.PI * 2);
-      this.context.fill();
-    } else {
-      this.context.beginPath();
-      this.context.moveTo(x, y - radius * 1.4);
-      this.context.lineTo(x + radius, y);
-      this.context.lineTo(x, y + radius * 1.4);
-      this.context.lineTo(x - radius, y);
-      this.context.closePath();
-      this.context.fill();
-      if (pile.kind === "relic") {
-        this.context.strokeStyle = "#f1e4ff";
-        this.context.stroke();
-      }
-    }
-  }
-
-  private drawBotBadges(bot: BotState, x: number, y: number): void {
-    if (bot.inventory.length) {
-      this.context.fillStyle = "#f6f5d1";
-      this.context.beginPath();
-      this.context.arc(
-        x + this.cellSize * 0.24,
-        y - this.cellSize * 0.23,
-        this.cellSize * 0.09,
-        0,
-        Math.PI * 2,
-      );
-      this.context.fill();
-    }
-    if (bot.theftProtectedUntilTick > this.state.tick) {
-      this.context.strokeStyle = "#f0f5d280";
-      this.context.lineWidth = 1;
-      this.context.beginPath();
-      this.context.arc(x, y, this.cellSize * 0.44, 0, Math.PI * 2);
-      this.context.stroke();
-    }
-  }
+function drawHoverCell(grid: CanvasGrid, cell: Position): void {
+  drawAtCell(grid, cell, (context) => {
+    context.fillStyle = "#ffffff1c";
+    context.strokeStyle = "#ffffffcc";
+    context.lineWidth = 0.05;
+    context.beginPath();
+    context.roundRect(-0.47, -0.47, 0.94, 0.94, 0.14);
+    context.fill();
+    context.stroke();
+  });
 }
 
-export function attachMapTooltip(
-  canvas: HTMLCanvasElement,
-  tooltip: HTMLElement,
-  getSnapshot: () => Snapshot | undefined,
-): () => void {
-  const onMouseMove = mapTooltipHandler(canvas, tooltip, getSnapshot);
+export function mapCellAt(canvas: HTMLCanvasElement, state: Snapshot, event: MouseEvent): Position {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: Math.floor(((event.clientX - rect.left) / rect.width) * state.map.width),
+    y: Math.floor(((event.clientY - rect.top) / rect.height) * state.map.height),
+  };
+}
+
+export interface MapPointer {
+  readonly canvas: HTMLCanvasElement;
+  readonly tooltip: HTMLElement;
+  readonly getSnapshot: () => Snapshot | undefined;
+  readonly onHover: (cell?: Position) => void;
+}
+
+export function attachMapTooltip(pointer: MapPointer): () => void {
+  const { canvas, tooltip } = pointer;
+  const onMouseMove = mapTooltipHandler(pointer);
   const onMouseLeave = () => {
     tooltip.hidden = true;
+    pointer.onHover(undefined);
   };
   canvas.addEventListener("mousemove", onMouseMove);
   canvas.addEventListener("mouseleave", onMouseLeave);
@@ -281,24 +103,38 @@ export function attachMapTooltip(
   };
 }
 
-function mapTooltipHandler(
-  canvas: HTMLCanvasElement,
-  tooltip: HTMLElement,
-  getSnapshot: () => Snapshot | undefined,
-) {
+function mapTooltipHandler(pointer: MapPointer) {
+  const { canvas, tooltip } = pointer;
   return (event: MouseEvent) => {
-    const state = getSnapshot();
+    const state = pointer.getSnapshot();
     if (!state) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const x = Math.floor(((event.clientX - rect.left) / rect.width) * state.map.width),
-      y = Math.floor(((event.clientY - rect.top) / rect.height) * state.map.height);
-    const description = describeMapCell(state, x, y);
+    const cell = mapCellAt(canvas, state, event);
+    const description = describeMapCell(state, cell.x, cell.y);
     if (!description) return;
 
-    tooltip.textContent = description;
-    tooltip.hidden = false;
-    tooltip.style.left = `${Math.max(0, Math.min(event.clientX - rect.left + 12, rect.width - 205))}px`;
-    tooltip.style.top = `${Math.max(0, event.clientY - rect.top - 45)}px`;
+    pointer.onHover(cell);
+    renderTooltip(tooltip, description);
+    const rect = canvas.getBoundingClientRect();
+    const left = event.clientX - rect.left + 16;
+    const flip = left + tooltip.offsetWidth > rect.width;
+    tooltip.style.left = `${flip ? left - tooltip.offsetWidth - 28 : left}px`;
+    tooltip.style.top = `${Math.max(4, event.clientY - rect.top - 20)}px`;
   };
+}
+
+function renderTooltip(tooltip: HTMLElement, description: string): void {
+  const [coordinates, terrain, ...details] = description.split(" · ");
+  const title = document.createElement("strong");
+  title.textContent = `${terrain ?? ""} `;
+  const position = document.createElement("small");
+  position.textContent = coordinates ?? "";
+  title.append(position);
+  const lines = details.map((detail) => {
+    const line = document.createElement("span");
+    line.textContent = detail;
+    return line;
+  });
+  tooltip.replaceChildren(title, ...lines);
+  tooltip.hidden = false;
 }

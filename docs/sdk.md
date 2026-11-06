@@ -2,6 +2,8 @@
 
 Import from `../src/sdk.ts` in a bot file. The SDK provides actions, state types, and helpers for movement, pathfinding, and inventory.
 
+See [bot development context](bot-development.md) for discovery, metadata limits, worker lifecycle, bot-owned tests, and reproducible evaluation. The [Copilot workflow](../.github/bot-workflow/README.md) provides specialized agents and gated artifacts for bot creation.
+
 ```ts
 import {
   BIOMES,
@@ -592,7 +594,7 @@ if (competition) return competition;
 Choose a copy count beside each strategy in the UI, or repeat IDs in the CLI:
 
 ```sh
-yarn play --bots nearest,nearest,raider,strategist
+yarn play --bots nearest,nearest,nearest
 ```
 
 Each copy runs in its own worker, with separate class fields, module state, and a seeded random stream. Replicas receive unique participant IDs such as `nearest-copy-1` and `nearest-copy-2`, names such as `Scout #1`, separate colors, bases, inventories, and standings. Their `strategyId` retains the original catalog ID, such as `nearest`. A strategy selected once keeps its existing ID and name.

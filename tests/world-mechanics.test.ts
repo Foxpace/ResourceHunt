@@ -239,7 +239,7 @@ for (const restriction of [
   });
 }
 
-test("a drone pursues an exposed bot and stuns it if it stays on the same tile", () => {
+test("a drone pursues an exposed bot and stuns it on arrival", () => {
   // Given
   const scenario = new WorldScenario();
   scenario.attacker.position = scenario.attacker.base;
@@ -251,16 +251,26 @@ test("a drone pursues an exposed bot and stuns it if it stays on the same tile",
 
   // Then
   assert.deepEqual(scenario.state.drones[0]!.position, scenario.defender.position);
-  assert.equal(scenario.defender.travelRemaining, 0);
-  scenario.advanceTo(13);
   assert.equal(scenario.defender.travelRemaining, 1);
   assert.deepEqual(scenario.defender.inventory, []);
 });
 
-test("SDK defense steps off a drone's tile before the stun", () => {
+test("SDK defense guards when a drone shares the bot's tile", () => {
   // Given
   const scenario = new WorldScenario();
   scenario.state.drones = [createDrone({ position: scenario.defender.position })];
+
+  // When
+  const defense = getDefensiveAction(scenario.observe("defender"));
+
+  // Then
+  assert.equal(defense?.type, "guard");
+});
+
+test("SDK defense steps out of reach of an adjacent drone", () => {
+  // Given
+  const scenario = new WorldScenario();
+  scenario.state.drones = [createDrone({ position: { x: 6, y: 6 } })];
 
   // When
   const defense = getDefensiveAction(scenario.observe("defender"));

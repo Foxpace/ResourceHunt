@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createMatchStatistics } from "../src/engine/match-statistics.ts";
-import { DEFAULT_CONFIG } from "../src/engine/types.ts";
+import { DEFAULT_CONFIG, type Standing } from "../src/engine/types.ts";
 import { createGameApi } from "../src/http/game-api.ts";
 import type { TournamentRound } from "../src/http/types.ts";
 import {
@@ -10,6 +10,80 @@ import {
   tournamentBiomes,
 } from "../src/competition/tournament.ts";
 import { defaultBadgeOptions, selectAwards } from "../src/competition/awards.ts";
+import { renderResults } from "../src/web/view/results.ts";
+
+test("tournament wins outrank points in totals, podium, and standings", () => {
+  // Given
+  const rounds = rankingRounds();
+  // When
+  const totals = summarizeTournament(rounds);
+  const html = renderResults(totals, "ranking", { mode: "tournament" });
+  // Then
+  assert.deepEqual(
+    totals.map(({ name }) => name),
+    ["Winner", "Points"],
+  );
+  assert.equal(totals[0]!.wins, 2);
+  assert.ok(totals[0]!.score < totals[1]!.score);
+  assert.ok(html.indexOf("<strong>Winner</strong>") < html.indexOf("<strong>Points</strong>"));
+  assert.ok(html.indexOf('scope="row">Winner') < html.indexOf('scope="row">Points'));
+});
+
+test("equal tournament wins are ranked by points", () => {
+  // Given
+  const rounds = rankingRounds().slice(0, 2);
+  // When
+  const totals = summarizeTournament(rounds);
+  // Then
+  assert.deepEqual(
+    totals.map(({ name }) => name),
+    ["Points", "Winner"],
+  );
+});
+
+test("individual match results still rank by points", () => {
+  // Given
+  const totals = summarizeTournament(rankingRounds());
+  // When
+  const html = renderResults(totals, "ranking", { mode: "match" });
+  // Then
+  assert.ok(html.indexOf("<strong>Points</strong>") < html.indexOf("<strong>Winner</strong>"));
+});
+
+function rankingRounds(): TournamentRound[] {
+  return [
+    [2, 1],
+    [0, 100],
+    [2, 1],
+  ].map((scores) => ({
+    scores: [scores],
+    result: {
+      config: DEFAULT_CONFIG,
+      ticks: 0,
+      resourceUnitsLeft: 0,
+      botOrder: ["Winner", "Points"],
+      standings: scores.map((score, index) => rankingStanding({ score, index, scores })),
+    },
+  }));
+}
+
+function rankingStanding(input: { score: number; index: number; scores: number[] }): Standing {
+  const name = input.index === 0 ? "Winner" : "Points";
+  return {
+    id: name,
+    name,
+    rank: input.score === Math.max(...input.scores) ? 1 : 2,
+    score: input.score,
+    delivered: 0,
+    carriedValue: 0,
+    errors: 0,
+    disabled: false,
+    captures: 0,
+    outpostsOwned: 0,
+    stolen: 0,
+    lost: 0,
+  };
+}
 
 test("a tournament stops at the win target and keeps score history for each replica", async (context) => {
   // Given

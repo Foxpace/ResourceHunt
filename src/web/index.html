@@ -3,393 +3,697 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#101614" />
+    <meta name="theme-color" content="#0a1215" />
     <meta name="description" content="Run and compare resource-hunting bots." />
     <title>Resource Hunt</title>
     <link rel="icon" href="/favicon.png" type="image/png" />
     <link rel="stylesheet" href="./style.css" />
     <script type="module" src="./app.ts"></script>
   </head>
-  <body>
-    <header class="app-header">
-      <a class="brand" href="/"
-        ><span class="brand-mark" aria-hidden="true">◈</span> Resource Hunt
-        <small>FRONTIER</small></a
-      >
-      <nav aria-label="Match tools">
-        <button class="text-button" id="import" aria-label="Import replay">Import</button>
-        <button class="text-button" id="export" aria-label="Export replay" disabled>Export</button>
-        <button class="text-button" id="rules-button">Rules</button>
+  <body data-mode="match" data-view="arena">
+    <svg class="icon-sprite" aria-hidden="true">
+      <symbol id="i-play" viewBox="0 0 24 24">
+        <path
+          d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z"
+          fill="currentColor"
+        />
+      </symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24">
+        <rect x="6.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" />
+        <rect x="13.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" />
+      </symbol>
+      <symbol id="i-step" viewBox="0 0 24 24">
+        <path
+          d="M6 6.4v11.2a.9.9 0 0 0 1.4.75l8.3-5.6a.9.9 0 0 0 0-1.5L7.4 5.65A.9.9 0 0 0 6 6.4Z"
+          fill="currentColor"
+        />
+        <rect x="17" y="5.5" width="2.6" height="13" rx="1" fill="currentColor" />
+      </symbol>
+      <symbol id="i-replay" viewBox="0 0 24 24">
+        <path
+          d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v4h4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-dice" viewBox="0 0 24 24">
+        <rect
+          x="4"
+          y="4"
+          width="16"
+          height="16"
+          rx="4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        />
+        <circle cx="9" cy="9" r="1.5" fill="currentColor" />
+        <circle cx="15" cy="15" r="1.5" fill="currentColor" />
+        <circle cx="15" cy="9" r="1.5" fill="currentColor" />
+        <circle cx="9" cy="15" r="1.5" fill="currentColor" />
+      </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24">
+        <path
+          d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-import" viewBox="0 0 24 24">
+        <path
+          d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-export" viewBox="0 0 24 24">
+        <path
+          d="M12 15V4m0 0L8 8m4-4 4 4M5 19h14"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-book" viewBox="0 0 24 24">
+        <path
+          d="M5 5.5A1.5 1.5 0 0 1 6.5 4H19v14H6.5A1.5 1.5 0 0 0 5 19.5v-14Zm0 14A1.5 1.5 0 0 0 6.5 21H19"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-panel" viewBox="0 0 24 24">
+        <rect
+          x="3.5"
+          y="4.5"
+          width="17"
+          height="15"
+          rx="3"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+        />
+        <path d="M9.5 5v14" stroke="currentColor" stroke-width="2" />
+      </symbol>
+      <symbol id="i-trophy" viewBox="0 0 24 24">
+        <path
+          d="M7 4h10v5a5 5 0 0 1-10 0V4Zm5 10v4m-4 2h8M7 6H4v1.5A3.5 3.5 0 0 0 7.5 11M17 6h3v1.5a3.5 3.5 0 0 1-3.5 3.5"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-swords" viewBox="0 0 24 24">
+        <path
+          d="m4 4 9.5 9.5M4 4v3.5l8 8M4 4h3.5l8 8M20 4l-6 6M20 4v3.5L17 10.5M20 4h-3.5L13.5 7M14 15l5 5m-8-2 2 2m6-8 2 2"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24">
+        <path
+          d="M5 7h14M5 17h14M9 4v6m6 4v6"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+        />
+      </symbol>
+    </svg>
+
+    <header class="topbar">
+      <div class="topbar-start">
+        <a class="brand" href="/" aria-label="Resource Hunt home">
+          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+            <path d="M16 2 28 9v14l-12 7-12-7V9l12-7Z" fill="url(#brand-fill)" />
+            <path d="M16 8.5 22.5 12v8L16 23.5 9.5 20v-8L16 8.5Z" fill="#0c1714" />
+            <path d="M16 12.5 19 14.2v3.6L16 19.5l-3-1.7v-3.6l3-1.7Z" fill="#f3d36e" />
+            <defs>
+              <linearGradient id="brand-fill" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#d4f5a6" />
+                <stop offset="1" stop-color="#5fc8b0" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <span class="brand-name">Resource Hunt</span>
+          <span class="brand-tag">Frontier</span>
+        </a>
+      </div>
+      <nav class="view-tabs" aria-label="Competition views">
+        <button id="tab-arena" type="button" aria-controls="panel-arena" aria-pressed="true">
+          <svg aria-hidden="true"><use href="#i-swords" /></svg>Arena
+        </button>
+        <button id="tab-results" type="button" aria-controls="panel-results" aria-pressed="false">
+          <svg aria-hidden="true"><use href="#i-sliders" /></svg>Results<i
+            class="tab-news"
+            aria-hidden="true"
+          ></i>
+        </button>
+        <button
+          id="tab-tournament"
+          type="button"
+          aria-controls="panel-tournament"
+          aria-pressed="false"
+        >
+          <svg aria-hidden="true"><use href="#i-trophy" /></svg>Tournament<i
+            class="tab-news"
+            aria-hidden="true"
+          ></i>
+        </button>
+      </nav>
+      <nav class="tools" aria-label="Match tools">
+        <button
+          class="tool-button"
+          id="import"
+          type="button"
+          aria-label="Import replay"
+          title="Import replay"
+        >
+          <svg aria-hidden="true"><use href="#i-import" /></svg><span>Import</span>
+        </button>
+        <button
+          class="tool-button"
+          id="export"
+          type="button"
+          aria-label="Export replay"
+          title="Export replay"
+          disabled
+        >
+          <svg aria-hidden="true"><use href="#i-export" /></svg><span>Export</span>
+        </button>
+        <button class="tool-button" id="rules-button" type="button" title="Rules">
+          <svg aria-hidden="true"><use href="#i-book" /></svg><span>Rules</span>
+        </button>
       </nav>
       <input id="replay-file" type="file" accept="application/json,.json" hidden />
     </header>
-    <main class="workspace">
-      <aside class="setup panel" aria-label="Match settings">
-        <form id="config-form">
-          <label class="field-label" for="biome">Map</label>
-          <select id="biome" aria-describedby="biome-description"></select>
-          <p class="biome-description" id="biome-description"></p>
-          <label class="field-label" for="seed"
-            >Seed
-            <button id="shuffle" type="button" aria-label="Randomize seed" title="Randomize seed">
-              ↻
+
+    <main class="shell">
+      <button
+        class="tool-button setup-reveal"
+        id="expand-setup"
+        aria-label="Show setup"
+        type="button"
+        aria-controls="setup"
+        aria-expanded="true"
+        title="Change mode, map, bots, and rules"
+      >
+        <svg aria-hidden="true"><use href="#i-panel" /></svg><span>Setup</span>
+      </button>
+      <aside class="setup" id="setup" aria-label="Match settings">
+        <form id="config-form" novalidate>
+          <div class="setup-head">
+            <div>
+              <span class="eyebrow">Command center</span>
+              <h2>Set up the hunt</h2>
+            </div>
+            <button
+              class="icon-button"
+              id="collapse-setup"
+              type="button"
+              aria-controls="setup"
+              aria-expanded="true"
+              aria-label="Hide setup"
+              title="Hide setup"
+            >
+              <svg aria-hidden="true"><use href="#i-panel" /></svg>
             </button>
-          </label>
-          <input
-            id="seed"
-            name="seed"
-            value="resource-hunt"
-            maxlength="200"
-            required
-            spellcheck="false"
-          />
-          <div class="form-row">
-            <label
-              >Width<input id="width" type="number" min="13" max="81" value="33" required
-            /></label>
-            <label
-              >Height<input id="height" type="number" min="13" max="81" value="25" required
-            /></label>
-            <label
-              >Ticks<input id="ticks" type="number" min="1" max="10000" value="300" required
-            /></label>
           </div>
-          <details class="advanced">
-            <summary>Advanced</summary>
-            <div class="advanced-fields">
-              <label class="field-label" for="layout">Bases</label>
-              <select id="layout">
-                <option value="edges">Edges</option>
-                <option value="center">Center</option>
-              </select>
-              <label class="range-label" for="resources"
-                >Resources <output id="resources-value">13%</output></label
+
+          <fieldset class="mode-switch">
+            <legend class="visually-hidden">Competition mode</legend>
+            <label
+              ><input type="radio" name="mode" value="match" checked /><span
+                ><svg aria-hidden="true"><use href="#i-swords" /></svg><b>Single match</b
+                ><small>Watch one map live</small></span
+              ></label
+            >
+            <label
+              ><input type="radio" name="mode" value="tournament" /><span
+                ><svg aria-hidden="true"><use href="#i-trophy" /></svg><b>Tournament</b
+                ><small>Rounds across every biome</small></span
+              ></label
+            >
+          </fieldset>
+
+          <section class="setup-step" aria-labelledby="step-map">
+            <h3 id="step-map"><span class="step-index">1</span>Battlefield</h3>
+            <div
+              id="biome-picker"
+              class="biome-picker"
+              role="radiogroup"
+              aria-label="Map"
+              aria-describedby="biome-description"
+            ></div>
+            <p class="biome-description" id="biome-description"></p>
+            <p class="tournament-only mode-note">
+              The tournament starts on this biome, then rotates through the others.
+            </p>
+            <label class="field-label" for="seed">Seed</label>
+            <div class="seed-field">
+              <input
+                id="seed"
+                name="seed"
+                value="resource-hunt"
+                maxlength="200"
+                required
+                spellcheck="false"
+              />
+              <button
+                class="icon-button"
+                id="shuffle"
+                type="button"
+                aria-label="Randomize seed"
+                title="Randomize seed"
               >
-              <input id="resources" type="range" min="0" max="40" value="13" />
-              <label class="range-label" for="terrain"
-                >Roughness <output id="terrain-value">28%</output></label
+                <svg aria-hidden="true"><use href="#i-dice" /></svg>
+              </button>
+            </div>
+            <div class="form-row">
+              <label class="number-field"
+                ><span>Width</span
+                ><input id="width" type="number" min="13" max="81" value="33" required
+              /></label>
+              <label class="number-field"
+                ><span>Height</span
+                ><input id="height" type="number" min="13" max="81" value="25" required
+              /></label>
+              <label class="number-field"
+                ><span>Ticks</span
+                ><input id="ticks" type="number" min="1" max="10000" value="300" required
+              /></label>
+            </div>
+          </section>
+
+          <section class="setup-step" aria-labelledby="step-bots">
+            <h3 id="step-bots">
+              <span class="step-index">2</span>Contenders
+              <span class="lineup-count" id="selected-count" aria-live="polite">0/15</span>
+              <button
+                class="icon-button small"
+                id="refresh-bots"
+                type="button"
+                aria-label="Refresh bots"
+                title="Refresh bots"
               >
-              <input id="terrain" type="range" min="0" max="65" value="28" />
-              <div class="form-row">
-                <label
-                  >Capacity<input id="capacity" type="number" min="3" max="100" value="8" required
-                /></label>
-                <label
-                  >Timeout, ms<input
-                    id="timeout"
-                    type="number"
-                    min="10"
-                    max="5000"
-                    value="100"
-                    required
-                /></label>
-              </div>
-              <div class="form-row">
-                <label
-                  >Hotspots<input id="hotspots" type="number" min="0" max="6" value="2" required
-                /></label>
-                <label
-                  >Outposts<input id="outposts" type="number" min="0" max="6" value="2" required
-                /></label>
-              </div>
-              <div class="form-row">
-                <label
-                  >Capture turns<input
-                    id="capture-turns"
-                    type="number"
-                    min="1"
-                    max="20"
-                    value="3"
-                    required
-                /></label>
-                <label
-                  >Depot immunity<input
-                    id="capture-immunity"
-                    type="number"
-                    min="0"
-                    max="20"
-                    value="3"
-                    required
-                /></label>
-                <label
-                  >Theft cooldown<input
-                    id="steal-cooldown"
-                    type="number"
-                    min="1"
-                    max="100"
-                    value="5"
-                    required
-                /></label>
-              </div>
-              <label class="toggle-label"
-                ><input id="stealing" type="checkbox" checked /> Cargo theft</label
-              >
-              <fieldset class="world-settings">
-                <legend>Competitive world</legend>
-                <label class="toggle-label"
-                  ><input id="sabotage" type="checkbox" checked /> Depot sabotage</label
+                <svg aria-hidden="true"><use href="#i-refresh" /></svg>
+              </button>
+            </h3>
+            <p class="step-hint">Add copies of each strategy. Up to 15 bots per match.</p>
+            <div id="bot-list" class="roster"><p class="muted">Loading bots…</p></div>
+          </section>
+
+          <section class="setup-step" aria-labelledby="step-rules">
+            <h3 id="step-rules"><span class="step-index">3</span>Rules</h3>
+            <details class="rule-group">
+              <summary><b>Map &amp; economy</b><small>Bases, resources, cargo</small></summary>
+              <div class="rule-fields">
+                <label class="field-label" for="layout">Base layout</label>
+                <select id="layout">
+                  <option value="edges">Edges</option>
+                  <option value="center">Center</option>
+                </select>
+                <label class="range-label" for="resources"
+                  >Resources <output id="resources-value">13%</output></label
                 >
-                <label class="toggle-label"
-                  ><input id="cargo-traps" type="checkbox" checked /> Cargo traps</label
+                <input id="resources" type="range" min="0" max="40" value="13" />
+                <label class="range-label" for="terrain"
+                  >Roughness <output id="terrain-value">28%</output></label
                 >
-                <label class="toggle-label"
-                  ><input id="natural-events" type="checkbox" checked /> Natural events</label
-                >
+                <input id="terrain" type="range" min="0" max="65" value="28" />
                 <div class="form-row">
-                  <label
-                    >Drones<input id="scavengers" type="number" min="0" max="6" value="2" required
+                  <label class="number-field"
+                    ><span>Capacity</span
+                    ><input id="capacity" type="number" min="3" max="100" value="8" required
                   /></label>
-                  <label
-                    >Guarded hotspots<input
-                      id="guardians"
-                      type="number"
-                      min="0"
-                      max="6"
-                      value="2"
-                      required
+                  <label class="number-field"
+                    ><span>Timeout ms</span
+                    ><input id="timeout" type="number" min="10" max="5000" value="100" required
                   /></label>
                 </div>
-              </fieldset>
-            </div>
-          </details>
-          <div class="bot-heading">
-            <span>Bots <span id="selected-count" aria-live="polite">0/15</span></span>
-            <button
-              class="text-button"
-              id="refresh-bots"
-              type="button"
-              aria-label="Refresh bots"
-              title="Refresh bots"
-            >
-              ↻
-            </button>
-          </div>
-          <p class="lineup-hint">Choose copies per strategy. Up to 15 participants.</p>
-          <div id="bot-list" class="bot-list"><p class="muted">Loading…</p></div>
-          <details class="advanced">
-            <summary>Results and tournament options</summary>
-            <div class="advanced-fields">
-              <label class="field-label" for="tournament-win-target"
-                >Wins needed to end tournament</label
-              >
-              <input id="tournament-win-target" type="number" min="1" max="10" value="3" required />
-              <div class="form-row">
-                <label
-                  >Standout badges<input
-                    id="standout-badges"
-                    type="number"
-                    min="0"
-                    max="30"
-                    value="3"
-                    required
-                /></label>
-                <label
-                  >Random badges<input
-                    id="random-badges"
-                    type="number"
-                    min="0"
-                    max="30"
-                    value="5"
-                    required
+                <div class="form-row">
+                  <label class="number-field"
+                    ><span>Hotspots</span
+                    ><input id="hotspots" type="number" min="0" max="6" value="2" required
+                  /></label>
+                  <label class="number-field"
+                    ><span>Outposts</span
+                    ><input id="outposts" type="number" min="0" max="6" value="2" required
+                  /></label>
+                </div>
+              </div>
+            </details>
+            <details class="rule-group">
+              <summary><b>Rivalry</b><small>Captures and cargo theft</small></summary>
+              <div class="rule-fields">
+                <div class="form-row">
+                  <label class="number-field"
+                    ><span>Capture turns</span
+                    ><input id="capture-turns" type="number" min="1" max="20" value="3" required
+                  /></label>
+                  <label class="number-field"
+                    ><span>Depot immunity</span
+                    ><input id="capture-immunity" type="number" min="0" max="20" value="3" required
+                  /></label>
+                </div>
+                <label class="switch"
+                  ><input id="stealing" type="checkbox" checked /><i aria-hidden="true"></i>Cargo
+                  theft</label
+                >
+                <label class="number-field"
+                  ><span>Theft cooldown</span
+                  ><input id="steal-cooldown" type="number" min="1" max="100" value="5" required
                 /></label>
               </div>
-              <fieldset>
-                <legend>Statistics columns</legend>
-                <div id="result-columns" class="result-column-options"></div>
-              </fieldset>
-            </div>
-          </details>
-          <button class="primary create-button" id="generate" type="submit">Generate</button>
-          <button
-            class="secondary create-button tournament-button"
-            id="run-tournament"
-            type="submit"
-            disabled
-          >
-            Run tournament
-          </button>
+            </details>
+            <details class="rule-group">
+              <summary><b>Competitive world</b><small>Threats, traps, events</small></summary>
+              <div class="rule-fields">
+                <label class="switch"
+                  ><input id="sabotage" type="checkbox" checked /><i aria-hidden="true"></i>Depot
+                  sabotage</label
+                >
+                <label class="switch"
+                  ><input id="cargo-traps" type="checkbox" checked /><i aria-hidden="true"></i>Cargo
+                  traps</label
+                >
+                <label class="switch"
+                  ><input id="natural-events" type="checkbox" checked /><i aria-hidden="true"></i
+                  >Natural events</label
+                >
+                <div class="form-row">
+                  <label class="number-field"
+                    ><span>Drones</span
+                    ><input id="scavengers" type="number" min="0" max="6" value="2" required
+                  /></label>
+                  <label class="number-field"
+                    ><span>Guarded hotspots</span
+                    ><input id="guardians" type="number" min="0" max="6" value="2" required
+                  /></label>
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <section class="setup-step tournament-only" aria-labelledby="step-tournament">
+            <h3 id="step-tournament"><span class="step-index">4</span>Title race</h3>
+            <label class="number-field wide"
+              ><span>Round wins needed to take the title</span
+              ><input id="tournament-win-target" type="number" min="1" max="10" value="3" required
+            /></label>
+            <p class="step-hint">
+              Rounds are simulated without playback. Tied leaders share a round win.
+            </p>
+          </section>
+
+          <footer class="launch">
+            <p class="launch-summary" id="launch-summary"></p>
+            <button class="launch-button match-only" id="generate" type="submit">
+              <svg aria-hidden="true"><use href="#i-swords" /></svg><span>Create match</span>
+            </button>
+            <button
+              class="launch-button tournament-only"
+              id="run-tournament"
+              type="submit"
+              disabled
+            >
+              <svg aria-hidden="true"><use href="#i-trophy" /></svg><span>Start tournament</span>
+            </button>
+          </footer>
         </form>
       </aside>
-      <section class="arena-column" aria-label="Competition">
-        <nav class="competition-tabs" aria-label="Competition views">
-          <button
-            class="secondary"
-            id="tab-arena"
-            type="button"
-            aria-controls="panel-arena"
-            aria-pressed="true"
-          >
-            Arena
-          </button>
-          <button
-            class="secondary"
-            id="tab-results"
-            type="button"
-            aria-controls="panel-results"
-            aria-pressed="false"
-          >
-            Results
-          </button>
-          <button
-            class="secondary"
-            id="tab-tournament"
-            type="button"
-            aria-controls="panel-tournament"
-            aria-pressed="false"
-          >
-            Tournament
-          </button>
-        </nav>
-        <div id="panel-arena">
-          <div class="arena panel">
-            <div class="arena-heading">
-              <span class="eyebrow">LIVE ARENA</span
-              ><span class="arena-subtitle">Gather. Disrupt. Survive.</span>
+
+      <section class="stage" aria-label="Competition">
+        <div id="panel-arena" class="arena">
+          <div class="arena-main">
+            <div class="hud">
+              <div class="transport">
+                <button class="play-button" id="play" type="button" disabled title="Play (Space)">
+                  <svg aria-hidden="true"><use href="#i-play" /></svg><span>Run</span>
+                </button>
+                <button
+                  class="icon-button"
+                  id="step"
+                  type="button"
+                  disabled
+                  aria-label="Step"
+                  title="Step one tick (→)"
+                >
+                  <svg aria-hidden="true"><use href="#i-step" /></svg>
+                </button>
+                <fieldset class="speed" id="speed">
+                  <legend class="visually-hidden">Playback speed</legend>
+                  <label title="2 ticks per second"
+                    ><input type="radio" name="speed" value="2" /><span>2×</span></label
+                  >
+                  <label title="8 ticks per second"
+                    ><input type="radio" name="speed" value="8" checked /><span>8×</span></label
+                  >
+                  <label title="24 ticks per second"
+                    ><input type="radio" name="speed" value="24" /><span>24×</span></label
+                  >
+                  <label title="As fast as possible"
+                    ><input type="radio" name="speed" value="1000" /><span>Max</span></label
+                  >
+                </fieldset>
+              </div>
+              <div id="world-status" class="world-status" aria-live="polite"></div>
+              <div class="tick-readout">
+                <span id="playback-mode" class="replay-badge" hidden>Replay</span>
+                <span class="tick-caption">Tick</span>
+                <span id="tick-label" class="tick-label" aria-label="Tick">0 / 300</span>
+              </div>
             </div>
-            <div class="transport">
-              <button class="primary" id="play" disabled>Run</button>
-              <button class="secondary" id="step" disabled>Step</button>
-              <select id="speed" aria-label="Playback speed">
-                <option value="2">2 ticks/s</option>
-                <option value="8" selected>8 ticks/s</option>
-                <option value="24">24 ticks/s</option>
-                <option value="1000">Max</option>
-              </select>
-              <span id="playback-mode" class="replay-badge" hidden>Replay</span>
-              <span id="tick-label" class="tick-label" aria-label="Tick">0 / 300</span>
-            </div>
-            <div id="world-status" class="world-status" aria-live="polite"></div>
-            <section class="scores" aria-label="Scores"><div id="standings"></div></section>
-            <div class="map-container" id="map-container">
-              <canvas id="map" aria-label="Resource Hunt map" role="img"></canvas>
-              <div class="map-tooltip" id="map-tooltip" hidden></div>
-              <div class="map-empty" id="map-empty">Loading…</div>
-            </div>
-            <div class="map-legend">
-              <span>● Bot / home</span><span class="drone-key">◈ Scavenger</span
-              ><span class="cache-key">⬡ Guardian cache</span
-              ><span class="trap-key">△ Cargo trap</span><span>▧ Hazard forecast</span>
-            </div>
-            <div class="timeline">
-              <input
-                id="timeline"
-                type="range"
-                min="0"
-                max="0"
-                value="0"
-                aria-label="Replay tick"
-                disabled
-              />
+
+            <div class="board" id="board">
+              <div class="map-container" id="map-container">
+                <canvas id="map" aria-label="Resource Hunt map" role="img"></canvas>
+                <div class="map-tooltip" id="map-tooltip" hidden></div>
+                <div class="map-empty" id="map-empty">
+                  <span class="loader" aria-hidden="true"></span>Preparing the arena…
+                </div>
+                <div class="board-overlay ready-overlay" id="ready-overlay" hidden>
+                  <button class="ready-button" id="ready-play" type="button">
+                    <svg aria-hidden="true"><use href="#i-play" /></svg>
+                  </button>
+                  <p id="ready-caption">Arena ready</p>
+                  <small>Press <kbd>Space</kbd> to start</small>
+                </div>
+                <div class="board-overlay finish-overlay" id="finish-overlay" hidden>
+                  <div class="finish-card" role="dialog" aria-labelledby="finish-title">
+                    <span class="eyebrow">Match complete</span>
+                    <div id="finish-body"></div>
+                    <div class="finish-actions">
+                      <button class="primary" id="finish-results" type="button">
+                        View results
+                      </button>
+                      <button class="secondary" id="finish-close" type="button">Back to map</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="timeline">
+                <input
+                  id="timeline"
+                  type="range"
+                  min="0"
+                  max="0"
+                  value="0"
+                  aria-label="Replay tick"
+                  disabled
+                />
+              </div>
+              <div class="map-legend" aria-label="Map legend">
+                <span><i class="key key-bot"></i>Bot</span>
+                <span><i class="key key-base"></i>Base</span>
+                <span><i class="key key-depot"></i>Outpost</span>
+                <span><i class="key key-ore"></i>Ore</span>
+                <span><i class="key key-crystal"></i>Crystal</span>
+                <span><i class="key key-relic"></i>Relic</span>
+                <span><i class="key key-drone"></i>Drone</span>
+                <span><i class="key key-cache"></i>Guardian cache</span>
+                <span><i class="key key-trap"></i>Trap</span>
+                <span><i class="key key-hazard"></i>Hazard</span>
+              </div>
             </div>
           </div>
-          <details id="bot-statistics" class="activity panel" hidden>
-            <summary>Bot statistics</summary>
-            <div class="bot-statistics-body">
-              <label for="statistics-bot">Bot</label>
-              <select id="statistics-bot"></select>
-              <div id="bot-statistics-values"></div>
-            </div>
-          </details>
-          <details class="activity panel">
-            <summary>Activity</summary>
-            <div id="event-log" aria-live="polite"></div>
-          </details>
+
+          <aside class="sidebar" aria-label="Match status">
+            <section class="card leaderboard" aria-labelledby="leaderboard-title">
+              <h3 id="leaderboard-title">Leaderboard</h3>
+              <ol id="standings" class="standings"></ol>
+            </section>
+            <details id="bot-statistics" class="card collapsible" hidden>
+              <summary>Bot statistics</summary>
+              <div class="bot-statistics-body">
+                <label class="visually-hidden" for="statistics-bot">Bot</label>
+                <select id="statistics-bot"></select>
+                <div id="bot-statistics-values"></div>
+              </div>
+            </details>
+            <details class="card collapsible activity" open>
+              <summary>Activity</summary>
+              <div id="event-log" class="event-log" aria-live="polite"></div>
+            </details>
+          </aside>
         </div>
+
         <section
-          class="panel results-panel"
+          class="view-panel results-panel"
           id="panel-results"
           aria-labelledby="match-results-heading"
           hidden
         >
-          <h2 id="match-results-heading">Match results</h2>
-          <div id="match-results"><p class="muted">Finish a match to see its results.</p></div>
+          <header class="view-head">
+            <div>
+              <span class="eyebrow">Debrief</span>
+              <h2 id="match-results-heading">Match results</h2>
+            </div>
+          </header>
+          <div id="match-results"></div>
         </section>
+
         <section
-          class="panel results-panel"
+          class="view-panel tournament-panel"
           id="panel-tournament"
           aria-labelledby="tournament-heading"
           hidden
         >
-          <h2 id="tournament-heading">Tournament</h2>
-          <p class="muted" id="tournament-status" role="status">
-            Run a tournament to cycle through biomes until a bot reaches the win target.
-          </p>
-          <p class="muted">
-            Standings use total points banked across all rounds. Tied leaders share a round win.
-            Badges earned in each round count toward the tournament total.
-          </p>
-          <div id="tournament-summary"></div>
-          <h3>Biome progress</h3>
-          <label for="tournament-biome">Round and biome</label>
-          <select id="tournament-biome" disabled></select>
-          <div class="tournament-timeline">
-            <label for="tournament-tick">Round tick</label>
-            <input id="tournament-tick" type="range" min="0" max="0" value="0" disabled />
+          <header class="view-head">
+            <div>
+              <span class="eyebrow">Title race</span>
+              <h2 id="tournament-heading">Tournament</h2>
+              <p class="view-status" id="tournament-status" role="status"></p>
+            </div>
+          </header>
+          <div id="tournament-empty" class="empty-state">
+            <svg aria-hidden="true"><use href="#i-trophy" /></svg>
+            <h3>No tournament yet</h3>
+            <p>
+              Bots play round after round, one biome at a time, until one reaches the win target.
+              Standings use total points banked across all rounds.
+            </p>
+            <button class="primary" id="tournament-setup" type="button">Set up a tournament</button>
           </div>
-          <div id="tournament-scores"></div>
-          <div id="tournament-round-results"></div>
+          <ol id="round-track" class="round-track" aria-label="Rounds"></ol>
+          <div id="tournament-summary"></div>
+          <section class="round-explorer" id="round-explorer" hidden>
+            <h3>Round explorer</h3>
+            <div class="round-controls">
+              <label class="field-label" for="tournament-biome">Round</label>
+              <select id="tournament-biome" disabled></select>
+              <label class="field-label" for="tournament-tick">Tick</label>
+              <input id="tournament-tick" type="range" min="0" max="0" value="0" disabled />
+            </div>
+            <div id="tournament-scores"></div>
+            <div id="tournament-round-results"></div>
+          </section>
         </section>
+
+        <details class="display-options card" id="display-options">
+          <summary>
+            <svg aria-hidden="true"><use href="#i-sliders" /></svg>Display options
+          </summary>
+          <div class="display-fields">
+            <div class="form-row">
+              <label class="number-field"
+                ><span>Standout badges</span
+                ><input id="standout-badges" type="number" min="0" max="30" value="3" required
+              /></label>
+              <label class="number-field"
+                ><span>Random badges</span
+                ><input id="random-badges" type="number" min="0" max="30" value="5" required
+              /></label>
+            </div>
+            <fieldset>
+              <legend>Statistics columns</legend>
+              <div id="result-columns" class="result-column-options"></div>
+            </fieldset>
+          </div>
+        </details>
       </section>
     </main>
+
     <div class="toast" id="toast" role="alert" hidden></div>
     <dialog id="rules" aria-labelledby="rules-title">
-      <button class="dialog-close text-button" id="close-rules" aria-label="Close rules">×</button>
-      <h2 id="rules-title">Rules</h2>
-      <p>
+      <header class="dialog-head">
+        <h2 id="rules-title">Rules of the hunt</h2>
+        <button class="icon-button" id="close-rules" type="button" aria-label="Close rules">
+          ×
+        </button>
+      </header>
+      <p class="dialog-lead">
         One action per turn. Bank resources at your base or owned outposts to score. Highest score
         wins.
       </p>
-      <dl>
-        <dt>Move</dt>
+      <dl class="rule-list">
+        <dt><i class="key key-bot"></i>Move</dt>
         <dd>One tile north, west, east, or south.</dd>
-        <dt>Grab</dt>
+        <dt><i class="key key-ore"></i>Grab</dt>
         <dd>Collect one resource if it fits.</dd>
-        <dt>Home</dt>
+        <dt><i class="key key-base"></i>Home</dt>
         <dd>One step toward your nearest owned bank.</dd>
-        <dt>Capture</dt>
+        <dt><i class="key key-depot"></i>Capture</dt>
         <dd>
           Claim or recapture an outpost with consecutive uncontested turns. Each new owner gets
           three full rounds of protection by default; rivals must wait until its shield expires.
         </dd>
-        <dt>Steal</dt>
+        <dt><i class="key key-bot"></i>Steal</dt>
         <dd>
           Take one fitting item from a rival on your tile or an adjacent tile. Bases are safe.
         </dd>
-        <dt>Sabotage</dt>
+        <dt><i class="key key-depot"></i>Sabotage</dt>
         <dd>
           One turn beside an enemy depot disables banking for six ticks. Owners can repair early,
           and the depot is protected from another sabotage until 12 ticks after the attack.
         </dd>
-        <dt>Trap</dt>
+        <dt><i class="key key-trap"></i>Trap</dt>
         <dd>
           Spend one ore to deploy a visible cargo trap. Arms next tick, lasts 30 ticks, with an
           8-tick tool cooldown and two active traps per bot. Loaded rivals trigger traps by crossing
           them or by standing on them when a tick starts.
         </dd>
-        <dt>Guard</dt>
+        <dt><i class="key key-bot"></i>Guard</dt>
         <dd>
           Protect cargo from theft, traps, and enemy hits through the following tick. Clear adjacent
           traps or strike adjacent enemies to fight back.
         </dd>
-        <dt>Cache</dt>
+        <dt><i class="key key-cache"></i>Cache</dt>
         <dd>
           Guard before striking a ready guardian. A nonlethal hit can draw retaliation. Defeat the
           guardian in three hits, then loot one fitting item per turn on the cache.
         </dd>
-        <dt>Scavengers</dt>
+        <dt><i class="key key-drone"></i>Scavengers</dt>
         <dd>
-          Step off a drone's tile before it can stun you. Drones check for a target before moving
-          and take two hits to disable.
+          Drones chase loaded bots nearby, stun them, and steal cargo, then give up and retry later.
+          Keep moving, guard when one is close, or strike it twice to disable it.
         </dd>
-        <dt>Hazards</dt>
+        <dt><i class="key key-hazard"></i>Hazards</dt>
         <dd>
           Watch the forecast and evacuate. Impacts spill cargo and delay exposed bots; hazardous
           terrain clears after seven ticks. Bases and bridges are protected.
         </dd>
-        <dt>Skip</dt>
+        <dt><i class="key key-bot"></i>Skip</dt>
         <dd>Wait one turn.</dd>
       </dl>
-      <p id="competition-rules">Capture: 3 turns. Theft cooldown: 5 ticks.</p>
+      <p class="rules-note" id="competition-rules">Capture: 3 turns. Theft cooldown: 5 ticks.</p>
       <p>
         Gold outlines mark finite resource hotspots. Flags mark outposts; their color shows
         ownership.
@@ -398,7 +702,7 @@
         Terrain costs 1–3 turns. Water, cliffs, lava, and thickets block movement. Hover a tile for
         its cost.
       </p>
-      <table>
+      <table class="resource-table">
         <caption>
           Resources
         </caption>
@@ -411,17 +715,17 @@
         </thead>
         <tbody>
           <tr>
-            <th><span class="ore">●</span> Ore</th>
+            <th><i class="key key-ore"></i> Ore</th>
             <td>2</td>
             <td>1</td>
           </tr>
           <tr>
-            <th><span class="crystal">◆</span> Crystal</th>
+            <th><i class="key key-crystal"></i> Crystal</th>
             <td>7</td>
             <td>2</td>
           </tr>
           <tr>
-            <th><span class="relic">✦</span> Relic</th>
+            <th><i class="key key-relic"></i> Relic</th>
             <td>14</td>
             <td>3</td>
           </tr>
