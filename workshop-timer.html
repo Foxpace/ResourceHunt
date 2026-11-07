@@ -1,0 +1,827 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resource Hunt · Workshop timer</title>
+    <style>
+      :root {
+        --bg: #08090a;
+        --surface: #111314;
+        --line: #2c3133;
+        --track: #2a2f31;
+        --fg: #ffffff;
+        --muted: #c9cfd1;
+        --faint: #a3abae;
+        --orange: #ff7a1a;
+        --teal: #2cc4c4;
+        --glow: #121516;
+        --flash: #1d1006;
+        --veil: rgba(0, 0, 0, 0.55);
+        --ring: min(62vh, 40vw);
+      }
+      :root[data-theme="light"] {
+        --bg: #f7f6f2;
+        --surface: #ffffff;
+        --line: #cfccc5;
+        --track: #d9d6cf;
+        --fg: #0b0d0e;
+        --muted: #33393c;
+        --faint: #4f5659;
+        --orange: #a84600;
+        --teal: #006867;
+        --glow: #ffffff;
+        --flash: #fbe3cf;
+        --veil: rgba(245, 244, 240, 0.6);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        color: var(--fg);
+        font-family:
+          "Inter",
+          "SF Pro Display",
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        padding: 4vh 5vw 3vh;
+        gap: 4vh;
+        transition: background 1.2s ease;
+        background: radial-gradient(ellipse at 30% 55%, var(--glow) 0%, var(--bg) 60%);
+      }
+      code {
+        font-family: "SF Mono", ui-monospace, Menlo, monospace;
+        font-size: 0.9em;
+        color: var(--teal);
+      }
+
+      /* Header */
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        font-size: clamp(13px, 1.15vw, 18px);
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 500;
+      }
+      header b {
+        color: var(--fg);
+        font-weight: 600;
+      }
+      header b span {
+        color: var(--orange);
+      }
+      #total {
+        letter-spacing: 0.08em;
+        text-transform: none;
+        font-variant-numeric: tabular-nums;
+      }
+      #total strong {
+        color: var(--fg);
+        font-weight: 700;
+      }
+
+      /* Timeline: hairline segments with labels */
+      #timeline {
+        display: flex;
+        gap: 10px;
+      }
+      .seg {
+        cursor: pointer;
+        min-width: 0;
+      }
+      .seg .track {
+        height: 5px;
+        border-radius: 2px;
+        background: var(--track);
+        overflow: hidden;
+      }
+      .seg .fill {
+        height: 100%;
+        width: 0;
+        background: var(--orange);
+        transition: width 0.25s linear;
+      }
+      .seg .label {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 10px;
+        font-size: clamp(13px, 1.1vw, 18px);
+        font-weight: 500;
+        color: var(--faint);
+        white-space: nowrap;
+      }
+      .seg .label span:first-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .seg.done .fill {
+        width: 100%;
+        background: var(--teal);
+      }
+      .seg.done .label {
+        color: var(--muted);
+      }
+      .seg.current .label {
+        color: var(--fg);
+      }
+      .seg.current .label span:first-child {
+        color: var(--orange);
+        font-weight: 700;
+      }
+      .seg:hover .label {
+        color: var(--fg);
+      }
+
+      /* Main */
+      main {
+        flex: 1;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 6vw;
+        align-items: center;
+        min-height: 0;
+      }
+
+      .ring {
+        position: relative;
+        width: var(--ring);
+        height: var(--ring);
+      }
+      .ring svg {
+        position: absolute;
+        inset: 0;
+        transform: rotate(-90deg);
+      }
+      .ring circle {
+        fill: none;
+        stroke-width: 3;
+      }
+      .ring .bg {
+        stroke: var(--track);
+      }
+      .ring .fg {
+        stroke: var(--orange);
+        stroke-linecap: round;
+        transition:
+          stroke-dashoffset 0.25s linear,
+          stroke 0.4s;
+      }
+      .ring.over .fg {
+        opacity: 0.6;
+      }
+      .ring .center {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+      #step {
+        font-size: calc(var(--ring) * 0.04);
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      #name {
+        margin: 0.5em 0 0;
+        font-size: calc(var(--ring) * 0.08);
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: var(--orange);
+      }
+      #clock {
+        font-size: calc(var(--ring) * 0.25);
+        font-weight: 400;
+        line-height: 1;
+        letter-spacing: -0.03em;
+        font-variant-numeric: tabular-nums;
+        margin: 0.06em 0 0.1em;
+        transition: color 0.4s;
+      }
+      #clock.paused {
+        color: var(--muted);
+      }
+      #clock.over {
+        color: var(--orange);
+      }
+      #state {
+        font-size: calc(var(--ring) * 0.04);
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--orange);
+        font-weight: 700;
+        height: 1.4em;
+      }
+      #next {
+        font-size: calc(var(--ring) * 0.045);
+        color: var(--muted);
+        font-weight: 500;
+        margin-top: 0.4em;
+      }
+
+      #info {
+        display: flex;
+        flex-direction: column;
+        gap: 3.6vh;
+        max-width: 40rem;
+      }
+      .item small {
+        display: block;
+        font-size: clamp(13px, 1.05vw, 17px);
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--faint);
+        font-weight: 600;
+        margin-bottom: 0.5em;
+      }
+      .item p {
+        margin: 0;
+        font-size: clamp(17px, 1.75vw, 30px);
+        line-height: 1.35;
+        font-weight: 500;
+        color: var(--fg);
+      }
+      #agent {
+        font-size: clamp(26px, 2.8vw, 48px) !important;
+        font-weight: 700 !important;
+      }
+      .hint {
+        border-left: 4px solid var(--orange);
+        padding-left: 1.2em;
+      }
+      .hint p strong {
+        color: var(--orange);
+        font-weight: 700;
+      }
+      .iterate {
+        font-size: clamp(15px, 1.3vw, 22px);
+        color: var(--muted);
+        font-weight: 500;
+      }
+
+      #rotate {
+        display: none;
+        align-items: center;
+        gap: 0.8em;
+        color: var(--orange);
+        font-size: clamp(16px, 1.5vw, 26px);
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      #rotate b {
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        font-size: 0.75em;
+        font-weight: 700;
+        border: 2px solid var(--orange);
+        border-radius: 999px;
+        padding: 0.35em 0.9em;
+        white-space: nowrap;
+      }
+      #rotate.show {
+        display: flex;
+        flex-wrap: wrap;
+        row-gap: 0.5em;
+      }
+      #rotate span {
+        white-space: nowrap;
+      }
+
+      /* Controls fade out when the mouse is idle */
+      footer {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        transition: opacity 0.6s ease;
+      }
+      body.idle footer {
+        opacity: 0;
+      }
+      body.idle {
+        cursor: none;
+      }
+      footer .spacer {
+        flex: 1;
+      }
+      footer .keys {
+        color: var(--faint);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        margin-right: 8px;
+      }
+      button {
+        font: inherit;
+        font-size: 14px;
+        color: var(--muted);
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        padding: 0.55em 1.1em;
+        cursor: pointer;
+        transition:
+          color 0.2s,
+          border-color 0.2s,
+          background 0.2s;
+      }
+      button:hover {
+        color: var(--fg);
+        border-color: var(--line);
+      }
+      button.primary {
+        color: var(--bg);
+        background: var(--fg);
+        font-weight: 600;
+        min-width: 6.5em;
+      }
+      button.primary:hover {
+        color: var(--bg);
+        opacity: 0.85;
+      }
+
+      /* Settings */
+      #backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: var(--veil);
+        backdrop-filter: blur(6px);
+        z-index: 1;
+      }
+      #settings {
+        display: none;
+        position: fixed;
+        top: 10vh;
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(720px, 90vw);
+        max-height: 80vh;
+        overflow: auto;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 28px 32px;
+        z-index: 2;
+        font-size: 15px;
+      }
+      body.settings #settings,
+      body.settings #backdrop {
+        display: block;
+      }
+      body.settings footer {
+        opacity: 1;
+      }
+      body.settings {
+        cursor: auto;
+      }
+      #settings h2 {
+        margin: 0 0 18px;
+        font-size: 13px;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 500;
+      }
+      #settings table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-bottom: 18px;
+      }
+      #settings td {
+        padding: 9px 4px;
+        border-bottom: 1px solid var(--line);
+      }
+      #settings td:nth-child(2) {
+        color: var(--faint);
+      }
+      #settings td:last-child {
+        text-align: right;
+        color: var(--faint);
+      }
+      #settings .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin: 14px 0;
+        flex-wrap: wrap;
+        color: var(--muted);
+      }
+      #settings input[type="number"] {
+        font: inherit;
+        color: var(--fg);
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.35em 0.6em;
+        width: 4.5em;
+        text-align: right;
+      }
+      #settings input:focus {
+        outline: none;
+        border-color: var(--orange);
+      }
+      #settings input[type="checkbox"] {
+        accent-color: var(--orange);
+      }
+      #settings button {
+        border-color: var(--line);
+      }
+
+      body.flash {
+        animation: flash 1.4s ease 2;
+      }
+      @keyframes flash {
+        50% {
+          background: var(--flash);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <b>Resource Hunt <span>·</span> Bot workshop</b>
+      <div id="total"></div>
+    </header>
+
+    <div id="timeline"></div>
+
+    <main>
+      <section class="ring" id="ring">
+        <svg viewBox="0 0 200 200">
+          <circle class="bg" cx="100" cy="100" r="96" />
+          <circle class="fg" id="arc" cx="100" cy="100" r="96" />
+        </svg>
+        <div class="center">
+          <div id="step"></div>
+          <div id="name"></div>
+          <div id="clock">00:00</div>
+          <div id="state"></div>
+          <div id="next"></div>
+        </div>
+      </section>
+      <section id="info">
+        <div id="rotate"><b>Rotate roles</b><span>intent → orchestrator → risk → intent</span></div>
+        <div class="item">
+          <small>Open agent</small>
+          <p id="agent"></p>
+        </div>
+        <div class="item">
+          <small>What you do</small>
+          <p id="goal"></p>
+        </div>
+        <div class="item">
+          <small>You produce · approved by</small>
+          <p id="output"></p>
+        </div>
+        <div class="item hint">
+          <small>Stuck?</small>
+          <p id="hint"></p>
+        </div>
+        <div class="iterate">
+          Done early? Ask the agent for another rival bot, or go back and iterate.
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <button id="start" class="primary">Start</button>
+      <button id="prev">← Previous</button>
+      <button id="nextBtn">Next →</button>
+      <button id="minus">− 1 min</button>
+      <button id="plus">+ 1 min</button>
+      <button id="restart">Restart phase</button>
+      <span class="spacer"></span>
+      <span class="keys"
+        >Space start/pause · ← → phase · + − minute · F fullscreen · T theme · S settings</span
+      >
+      <button id="theme"></button>
+      <button id="openSettings">Settings</button>
+    </footer>
+
+    <div id="backdrop"></div>
+    <div id="settings">
+      <h2>Settings</h2>
+      <table id="durations"></table>
+      <div class="row">
+        Remaining time of current phase:
+        <input id="fixMin" type="number" min="0" step="1" /> min
+        <input id="fixSec" type="number" min="0" max="59" step="1" /> s
+        <button id="applyFix">Apply</button>
+      </div>
+      <div class="row">
+        <label
+          ><input id="auto" type="checkbox" /> Move to the next phase automatically when time is
+          up</label
+        >
+      </div>
+      <div class="row">
+        <button id="resetAll">Reset whole workshop</button>
+        <span style="flex: 1"></span>
+        <button id="closeSettings" class="primary">Done</button>
+      </div>
+    </div>
+
+    <script>
+      const GUIDE =
+        "Say <strong>guide us</strong> and the agent walks every role through the stage. Out of time? Say <strong>wrap up</strong> and it drafts the artifact now.";
+      // Keep names and minutes in sync with .github/agents/*.agent.md; guard.test.mjs checks them.
+      const DEFAULT_PHASES = [
+        {
+          name: "Intention",
+          min: 8,
+          agent: "Bot Intention",
+          goal: "Say how your bot should play, in your own words. Pick its twist and a success target.",
+          output: "<code>INTENTION.md</code> · intent owner",
+        },
+        {
+          name: "Design",
+          min: 12,
+          agent: "Bot Design",
+          goal: "Write the bot’s decision order. Answer the tough game situations the agent throws at you.",
+          output: "<code>DESIGN.md</code> · intent owner",
+        },
+        {
+          name: "Plan",
+          min: 5,
+          agent: "Bot Plan",
+          rotate: true,
+          goal: "Judge the agent’s plan. Cut what you don’t need and pick the risk to test first.",
+          output: "<code>PLAN.md</code> · orchestrator",
+        },
+        {
+          name: "Build",
+          min: 15,
+          agent: "Bot Build",
+          goal: "Choose how your bot plays. The agent writes and tests it; you tune it, or pivot if it fails.",
+          output: "bot code + <code>BUILD.md</code> · orchestrator",
+        },
+        {
+          name: "Hand-in",
+          min: 10,
+          agent: "Bot Hand-in",
+          rotate: true,
+          goal: "Watch three practice tournaments, give the verdict, and send your packed bot.",
+          output:
+            "<code>REVIEW.md</code> · risk owner · send <code>results/&lt;id&gt;-handin.zip</code>",
+        },
+      ];
+
+      const KEY = "resource-hunt-timer-v2";
+      const CIRCUMFERENCE = 2 * Math.PI * 96;
+      const $ = (id) => document.getElementById(id);
+      const fmt = (ms) => {
+        const s = Math.round(Math.abs(ms) / 1000);
+        return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+      };
+
+      let state = load() ?? fresh();
+
+      function fresh() {
+        return {
+          durations: DEFAULT_PHASES.map((p) => p.min),
+          index: 0,
+          remaining: DEFAULT_PHASES[0].min * 60000,
+          endsAt: null,
+          auto: true,
+        };
+      }
+      function load() {
+        try {
+          return JSON.parse(localStorage.getItem(KEY));
+        } catch {
+          return null;
+        }
+      }
+      function save() {
+        localStorage.setItem(KEY, JSON.stringify(state));
+      }
+
+      const running = () => state.endsAt !== null;
+      const remaining = () => (running() ? state.endsAt - Date.now() : state.remaining);
+      const durationMs = (i) => state.durations[i] * 60000;
+      const progress = (i) => Math.min(1, Math.max(0, 1 - remaining() / durationMs(i)));
+
+      function setRemaining(ms) {
+        if (running()) state.endsAt = Date.now() + ms;
+        else state.remaining = ms;
+        save();
+        render();
+      }
+      function goTo(i) {
+        if (i < 0 || i >= DEFAULT_PHASES.length) return;
+        const wasRunning = running();
+        state.index = i;
+        state.remaining = durationMs(i);
+        state.endsAt = wasRunning ? Date.now() + state.remaining : null;
+        save();
+        render();
+        if (DEFAULT_PHASES[i].rotate) flash();
+      }
+      function toggle() {
+        if (running()) {
+          state.remaining = remaining();
+          state.endsAt = null;
+        } else {
+          state.endsAt = Date.now() + state.remaining;
+        }
+        save();
+        render();
+      }
+      function flash() {
+        document.body.classList.remove("flash");
+        void document.body.offsetWidth;
+        document.body.classList.add("flash");
+      }
+
+      function buildTimeline() {
+        $("timeline").innerHTML = "";
+        DEFAULT_PHASES.forEach((p, i) => {
+          const seg = document.createElement("div");
+          seg.className = "seg";
+          seg.style.flex = state.durations[i] || 1;
+          seg.title = "Jump to this phase";
+          seg.innerHTML = `<div class="track"><div class="fill"></div></div>
+      <div class="label"><span>${p.name}</span><span>${state.durations[i]}′</span></div>`;
+          seg.onclick = () => goTo(i);
+          $("timeline").appendChild(seg);
+        });
+      }
+
+      function render() {
+        const i = state.index,
+          p = DEFAULT_PHASES[i],
+          left = remaining(),
+          over = left < 0;
+
+        $("step").textContent = `Phase ${i + 1} / ${DEFAULT_PHASES.length}`;
+        $("name").textContent = p.name;
+        $("clock").textContent = (over ? "+" : "") + fmt(left);
+        $("clock").className = over ? "over" : running() ? "" : "paused";
+        $("state").textContent = over ? "Over time" : running() ? "" : "Paused";
+        $("arc").style.strokeDashoffset = CIRCUMFERENCE * progress(i);
+        $("ring").classList.toggle("over", over);
+
+        $("agent").textContent = p.agent;
+        $("goal").innerHTML = p.goal;
+        $("output").innerHTML = p.output;
+        $("hint").innerHTML = GUIDE;
+        $("rotate").classList.toggle("show", !!p.rotate);
+        const n = DEFAULT_PHASES[i + 1];
+        $("next").textContent = n
+          ? `Next · ${n.name}${n.rotate ? " · rotate roles" : ""}`
+          : "Next · hand in your bot";
+        $("start").textContent = running() ? "Pause" : "Start";
+
+        const later = state.durations.slice(i + 1).reduce((a, b) => a + b, 0) * 60000;
+        const total = state.durations.reduce((a, b) => a + b, 0);
+        $("total").innerHTML =
+          `<strong>${fmt(Math.max(0, left) + later)}</strong> left of ${total} min`;
+
+        [...$("timeline").children].forEach((seg, j) => {
+          seg.className = "seg" + (j < i ? " done" : j === i ? " current" : "");
+          seg.querySelector(".fill").style.width = j === i ? `${progress(j) * 100}%` : "";
+        });
+        document.title = `${fmt(left)} · ${p.name} · Resource Hunt`;
+      }
+
+      function tick() {
+        if (
+          running() &&
+          remaining() <= 0 &&
+          state.auto &&
+          state.index < DEFAULT_PHASES.length - 1
+        ) {
+          const overshoot = -remaining();
+          state.index += 1;
+          state.endsAt = Date.now() + durationMs(state.index) - overshoot;
+          save();
+          flash();
+        }
+        render();
+      }
+
+      function renderSettings() {
+        $("durations").innerHTML = DEFAULT_PHASES.map(
+          (p, i) =>
+            `<tr><td>${i + 1}. ${p.name}</td><td>${p.agent}</td>
+     <td><input type="number" min="1" step="1" data-i="${i}" value="${state.durations[i]}" /> min</td></tr>`,
+        ).join("");
+        $("durations")
+          .querySelectorAll("input")
+          .forEach(
+            (input) =>
+              (input.onchange = () => {
+                const i = +input.dataset.i,
+                  v = Math.max(1, Math.round(+input.value || 1));
+                const delta = (v - state.durations[i]) * 60000;
+                state.durations[i] = v;
+                if (i === state.index) setRemaining(remaining() + delta);
+                save();
+                buildTimeline();
+                render();
+              }),
+          );
+        const left = Math.max(0, remaining());
+        $("fixMin").value = Math.floor(left / 60000);
+        $("fixSec").value = Math.floor(left / 1000) % 60;
+        $("auto").checked = state.auto;
+      }
+      const openSettings = () => {
+        renderSettings();
+        document.body.classList.add("settings");
+      };
+      const closeSettings = () => document.body.classList.remove("settings");
+
+      $("arc").style.strokeDasharray = CIRCUMFERENCE;
+      $("start").onclick = toggle;
+      $("prev").onclick = () => goTo(state.index - 1);
+      $("nextBtn").onclick = () => goTo(state.index + 1);
+      $("plus").onclick = () => setRemaining(remaining() + 60000);
+      $("minus").onclick = () => setRemaining(remaining() - 60000);
+      $("restart").onclick = () => setRemaining(durationMs(state.index));
+      $("openSettings").onclick = openSettings;
+      $("closeSettings").onclick = closeSettings;
+      $("backdrop").onclick = closeSettings;
+      $("applyFix").onclick = () =>
+        setRemaining(((+$("fixMin").value || 0) * 60 + (+$("fixSec").value || 0)) * 1000);
+      $("auto").onchange = () => {
+        state.auto = $("auto").checked;
+        save();
+      };
+      $("resetAll").onclick = () => {
+        if (!confirm("Reset all phases and durations?")) return;
+        state = fresh();
+        save();
+        buildTimeline();
+        renderSettings();
+        render();
+      };
+
+      document.addEventListener("keydown", (e) => {
+        if (e.target.tagName === "INPUT") return;
+        if (e.key === " ") {
+          e.preventDefault();
+          toggle();
+        } else if (e.key === "ArrowRight") goTo(state.index + 1);
+        else if (e.key === "ArrowLeft") goTo(state.index - 1);
+        else if (e.key === "+" || e.key === "=") setRemaining(remaining() + 60000);
+        else if (e.key === "-") setRemaining(remaining() - 60000);
+        else if (e.key.toLowerCase() === "f")
+          document.fullscreenElement
+            ? document.exitFullscreen()
+            : document.documentElement.requestFullscreen();
+        else if (e.key.toLowerCase() === "s") openSettings();
+        else if (e.key.toLowerCase() === "t") toggleTheme();
+        else if (e.key === "Escape") closeSettings();
+      });
+
+      // Theme: the saved choice wins, otherwise follow the system setting.
+      const THEME_KEY = "resource-hunt-timer-theme";
+      function applyTheme(theme) {
+        document.documentElement.dataset.theme = theme;
+        $("theme").textContent = theme === "light" ? "Dark" : "Light";
+      }
+      function toggleTheme() {
+        const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+        localStorage.setItem(THEME_KEY, next);
+        applyTheme(next);
+      }
+      applyTheme(
+        localStorage.getItem(THEME_KEY) ??
+          (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"),
+      );
+      $("theme").onclick = toggleTheme;
+
+      // Hide the controls and cursor after three idle seconds, so the projector shows only the timer.
+      let idleTimer;
+      const wake = () => {
+        document.body.classList.remove("idle");
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => document.body.classList.add("idle"), 3000);
+      };
+      ["mousemove", "mousedown", "keydown"].forEach((ev) => document.addEventListener(ev, wake));
+      wake();
+
+      buildTimeline();
+      render();
+      setInterval(tick, 250);
+    </script>
+  </body>
+</html>

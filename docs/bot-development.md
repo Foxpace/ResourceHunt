@@ -4,7 +4,7 @@ This guide supplies authoring and evaluation context for the [Copilot bot workfl
 
 ## Workshop workflow
 
-Participants follow [WORKSHOP.md](../WORKSHOP.md): Bot Intention, Bot Design, Bot Plan, Bot Build, and Bot Test & Review, one approved Markdown artifact each in `bots/<bot-id>/_workflow/`. Humans approve artifacts by editing them; agents cannot. See the [workflow README](../.github/bot-workflow/README.md) for what the hook enforces.
+Participants follow [WORKSHOP.md](../WORKSHOP.md): Bot Intention, Bot Design, Bot Plan, Bot Build, and Bot Hand-in, one approved Markdown artifact each in `bots/<bot-id>/_workflow/`. Agents record an approval only after the approving role says yes in chat. The workshop's final bot is one file, `bots/<bot-id>.ts`; practice bots are `bots/<bot-id>-<name>.ts` and are deleted when the hand-in zip is packed. See the [workflow README](../.github/bot-workflow/README.md) for what the hook enforces.
 
 ## Reading order
 
@@ -104,7 +104,7 @@ yarn format:check
 yarn bots
 ```
 
-Bot agents run checks only through `node .github/bot-workflow/run.mjs <stage> <bot-id> <operation>`, which finds the bot's tests in `bots/<bot-id>/` and saves evidence. No new game test, helper modification, dependency, or lint exception is allowed just to fit a bot.
+Bot agents save evidence through `node .github/bot-workflow/run.mjs <stage> <bot-id> <operation>`, which checks the team's bot files and benchmarks them. No new game test, helper modification, dependency, or lint exception is allowed just to fit a bot.
 
 Each test has one observable behavior, at most 20 lines, and `// Given`, `// When`, `// Then` sections. Keep setup in bot-owned fixtures or existing reusable helpers. Tests should catch the wrong policy, not merely assert that a returned object has an action type. For a regression, show the expected failure before the fix and preserve the expectation through repair.
 
@@ -125,7 +125,7 @@ yarn --silent tournament --bots harbor,nearest,nearest,nearest --biome forest --
 yarn inspect --input results/harbor.replay.json --tick 45 --bot harbor --map
 ```
 
-`harbor` is an illustrative bot ID, not an included strategy. Bot agents use the workflow runner instead of these commands.
+`harbor` is an illustrative bot ID, not an included strategy. Workshop agents use the workflow runner when a result goes into an artifact.
 
 Benchmark match index `i` rotates the lineup by `i % participantCount`. A block of `participantCount` matches shares map seed `${config.seed}:${Math.floor(i / participantCount)}`. Use a match count divisible by participant count to balance starting bases. A 16-match four-bot benchmark represents four map seeds with four base rotations each, not 16 independent maps.
 

@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,32 +30,15 @@ export const APPROVERS = {
   "BUILD.md": "agent orchestrator",
   "REVIEW.md": "risk owner",
 };
-const EVERY_STAGE = Object.keys(STAGES);
-export const OPERATIONS = {
-  status: EVERY_STAGE,
-  baseline: EVERY_STAGE,
-  check: ["build", "review"],
-  test: ["build", "review"],
-  bench: ["build", "review"],
-  play: ["build", "review"],
-  format: ["build"],
-  holdout: ["review"],
-};
-const UNGATED = new Set(["status", "baseline"]);
-const SLUG = "[a-z][a-z0-9-]{0,47}";
-const ARTIFACT = new RegExp(`^bots/(${SLUG})/_workflow/([A-Z]+\\.md)$`);
-const CODE = new RegExp(`^bots/(${SLUG})(?:\\.ts|/(?!_workflow/).+\\.ts)$`);
-const RUNNER = new RegExp(
-  `^node \\.github/bot-workflow/run\\.mjs (\\w+) (${SLUG}) ([a-z]+)(?: (${BIOMES.join("|")}))?$`,
-);
-const CD_PREFIX = /^cd\s+("?)([^"&]+)\1\s*&&\s*(.+)$/;
+export const SLUG = /^[a-z][a-z0-9-]{0,47}$/;
+const ARTIFACTS = new Set(Object.values(STAGES).map((stage) => stage.artifact));
+const PIVOT_ARTIFACTS = new Set(STAGES.build.needs);
+const READ_ONLY_BOTS = new Set(["bots/nearest.ts"]);
+const WORKFLOW_FILE = /^bots\/([a-z][a-z0-9-]{0,47})\/_workflow\/(.+)$/;
 const APPROVED_STATUS = /^[\W_]*status[\W_]*:[\W_]*approved\b/im;
 const SIGNATURE = /^[\W_]*approved by[\W_]*:[ \t*_]*[^\s<*_]/im;
-const SAFE_TOOLS =
-  /^(read_file|file_search|grep_search|semantic_search|list_dir|get_errors|get_terminal_output|terminal_last_command|vscode_listCodeUsages|vscode[/_]askQuestions|read|search|list_files|grep|rg|glob|view|ask_user|AskUserQuestion|update_todo|manage_todo_list|TodoWrite)$/i;
-const TERMINAL_TOOLS = /^(run_in_terminal|execute|bash|powershell)$/i;
 const EDIT_TOOLS =
-  /^(apply_patch|create_file|create|replace_string_in_file|multi_replace_string_in_file|insert_edit_into_file|str_replace_editor|edit|write)$/i;
+  /^(apply_patch|create_file|create|create_directory|replace_string_in_file|multi_replace_string_in_file|insert_edit_into_file|edit_notebook_file|vscode_renameSymbol|str_replace_editor|edit|write)$/i;
 
 export function isApproved(content) {
   return APPROVED_STATUS.test(content) && SIGNATURE.test(content);
@@ -66,7 +49,7 @@ export function safePath(root, candidate) {
   const absolute = resolve(root, candidate);
   const local = relative(root, absolute).split(sep).join("/");
   if (!local.startsWith("bots/"))
-    throw new Error(`${local} is protected. Agents write only in bots/.`);
+    throw new Error(`${local} is game source and read-only. Agents write only in bots/.`);
 
   let current = absolute;
   while (current !== resolve(root)) {
@@ -87,7 +70,7 @@ export function readArtifact(context) {
 }
 
 function stageOf(name) {
-  return EVERY_STAGE.find((stage) => STAGES[stage].artifact === name);
+  return Object.keys(STAGES).find((stage) => STAGES[stage].artifact === name);
 }
 
 export function checkInputs(context) {
@@ -103,10 +86,29 @@ export function checkInputs(context) {
   }
 }
 
+/** The team owning a bot file: bots/<team>.ts, bots/<team>-<name>.ts, or bots/<team>/... */
+export function teamOf(root, path) {
+  const name = path.split("/")[1].replace(/\.ts$/, "");
+  const teams = readdirSync(resolve(root, "bots"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((team) => hasWorkflow(root, team));
+  const owners = teams.filter((team) => name === team || name.startsWith(`${team}-`));
+
+  return owners.sort((a, b) => b.length - a.length)[0] ?? null;
+}
+
+function hasWorkflow(root, team) {
+  const folder = resolve(root, "bots", team, "_workflow");
+
+  return lstatSync(folder, { throwIfNoEntry: false })?.isDirectory() ?? false;
+}
+
 function editPaths(args) {
   if (Array.isArray(args.replacements)) return args.replacements.map((item) => item.filePath);
   const patch = args.input ?? args.patch;
-  if (typeof patch !== "string") return [args.filePath ?? args.file_path ?? args.path];
+  if (typeof patch !== "string")
+    return [args.filePath ?? args.file_path ?? args.path ?? args.dirPath ?? args.uri];
   if (/^\*\*\* Move to:/m.test(patch)) throw new Error("Use explicit edits, not moves.");
   const paths = [...patch.matchAll(/^\*\*\* (?:Add|Update|Delete)(?: File)?: (.+)$/gm)];
   if (!paths.length) throw new Error("Unrecognized patch paths.");
@@ -114,71 +116,56 @@ function editPaths(args) {
   return paths.map((match) => match[1]);
 }
 
-function checkArtifactEdit(context) {
-  const { root, stage, folder, name } = context;
+function checkWorkflowEdit(context) {
+  const { stage, name } = context;
   const own = STAGES[stage].artifact;
-  if (name !== own)
-    throw new Error(`This agent writes only ${own}. ${name} belongs to another stage.`);
-  checkInputs({ root, stage, folder });
+  const pivot = stage === "build" && PIVOT_ARTIFACTS.has(name);
+  if (pivot) return;
+  const otherStage = ARTIFACTS.has(name) && name !== own;
+  if (otherStage)
+    throw new Error(
+      `This agent writes only ${own}. ${name} belongs to the ${stageOf(name)} stage.`,
+    );
+  checkInputs(context);
+}
+
+function checkCodeEdit(context) {
+  const { root, stage, path } = context;
+  if (stage !== "build")
+    throw new Error("Only Bot Build writes .ts files, once the plan is approved.");
+  const team = teamOf(root, path);
+  if (!team)
+    throw new Error(
+      `${path} has no team. Name bot files bots/<team-id>.ts or bots/<team-id>-<name>.ts.`,
+    );
+  checkInputs({ root, stage, folder: `bots/${team}/_workflow` });
 }
 
 function checkEdit(context) {
-  const { root, stage, path } = context;
-  const artifact = path.match(ARTIFACT);
-  if (artifact) return checkArtifactEdit({ ...context, folder: dirname(path), name: artifact[2] });
+  const { path } = context;
+  if (READ_ONLY_BOTS.has(path))
+    throw new Error(`${path} is the shared baseline. Copy it into a new bot file instead.`);
 
-  const code = path.match(CODE);
-  if (!code)
-    throw new Error(`${path} is protected. Agents edit only bots/<bot>.ts and bots/<bot>/*.ts.`);
-  if (stage !== "build") throw new Error("Only Bot Build may change bot code or tests.");
-  checkInputs({ root, stage, folder: `bots/${code[1]}/_workflow` });
-}
+  const workflow = path.match(WORKFLOW_FILE);
+  if (workflow) {
+    const folder = `bots/${workflow[1]}/_workflow`;
 
-function withoutCd(command, root) {
-  const text = String(command ?? "").trim();
-  const match = text.match(CD_PREFIX);
-  const sameRoot = match ? resolve(root, match[2]) === resolve(root) : false;
-
-  return sameRoot ? match[3].trim() : text;
-}
-
-export function availableOperations(stage) {
-  return Object.keys(OPERATIONS).filter((operation) => OPERATIONS[operation].includes(stage));
-}
-
-export function commandContext(command, context) {
-  const { root, stage } = context;
-  const usage = `node .github/bot-workflow/run.mjs ${stage} <bot> <operation> [biome]`;
-  const match = withoutCd(command, root).match(RUNNER);
-  if (!match) throw new Error(`Run checks only through: ${usage}`);
-  const [, requestedStage, bot, operation, biome] = match;
-  if (requestedStage !== stage)
-    throw new Error(`This agent runs only the ${stage} stage: ${usage}`);
-  if (!OPERATIONS[operation]?.includes(stage))
-    throw new Error(`Available in ${stage}: ${availableOperations(stage).join(", ")}.`);
-  const folder = `bots/${bot}/_workflow`;
-  if (!UNGATED.has(operation)) checkInputs({ root, stage, folder });
-
-  return { ...context, bot, folder, operation, biome };
+    return checkWorkflowEdit({ ...context, folder, name: workflow[2] });
+  }
+  if (path.endsWith(".ts")) checkCodeEdit(context);
 }
 
 function routeTool(event, context) {
   const name = String(event.toolName ?? event.tool_name ?? "")
     .split(".")
     .at(-1);
+  if (!EDIT_TOOLS.test(name)) return;
+
   const supplied = event.toolArgs ?? event.tool_input ?? {};
   const args = typeof supplied === "string" ? JSON.parse(supplied) : supplied;
-  if (SAFE_TOOLS.test(name)) return;
-  if (TERMINAL_TOOLS.test(name)) {
-    commandContext(args.command ?? args.script, context);
-
-    return;
-  }
-  if (!EDIT_TOOLS.test(name)) throw new Error("Unknown tools and delegation are blocked.");
-
   for (const candidate of editPaths(args)) {
-    const path = safePath(context.root, candidate);
-    checkEdit({ ...context, path, args, candidate });
+    const path = safePath(context.root, String(candidate ?? "").replace(/^file:\/\//, ""));
+    checkEdit({ ...context, path });
   }
 }
 

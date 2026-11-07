@@ -3,11 +3,13 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { ROOT, STAGES, commandContext, decide, isApproved } from "./guard.mjs";
+import { ROOT, STAGES, decide, isApproved } from "./guard.mjs";
+import { parseRequest } from "./run.mjs";
 
 const DRAFT = "# Intention: comet\n\nStatus: draft\nApproved by:\n\n## Our idea\n";
 const APPROVED = "# Artifact: comet\n\nStatus: approved\nApproved by: Jana (intent owner)\n";
 const UPSTREAM = { design: 1, plan: 2, build: 3, review: 4 };
+const AGENTS = join(ROOT, ".github/agents");
 
 function workspace(approvedCount = 0) {
   const root = mkdtempSync(join(tmpdir(), "bot-workflow-"));
@@ -20,17 +22,19 @@ function workspace(approvedCount = 0) {
   return root;
 }
 
-function create(path, content) {
+function create(path, content = "x") {
   return { toolName: "create_file", toolArgs: { filePath: path, content } };
-}
-
-function terminal(command) {
-  return { tool_name: "run_in_terminal", tool_input: { command } };
 }
 
 function assertDenied(result, reason) {
   assert.equal(result.permissionDecision, "deny");
   assert.match(result.permissionDecisionReason, reason);
+}
+
+function agentSources() {
+  const files = readdirSync(AGENTS).filter((name) => name.endsWith(".agent.md"));
+
+  return files.map((name) => ({ name, source: readFileSync(join(AGENTS, name), "utf8") }));
 }
 
 test("intention writes its own draft artifact without prerequisites", () => {
@@ -77,6 +81,20 @@ test("design waits for an approved intention", () => {
   assertDenied(result, /INTENTION\.md is not approved yet/);
 });
 
+test("design cannot start without an intention", () => {
+  // Given
+  const root = workspace();
+
+  // When
+  const result = decide(create("bots/comet/_workflow/DESIGN.md", DRAFT), {
+    root,
+    stage: "design",
+  });
+
+  // Then
+  assertDenied(result, /INTENTION\.md is missing/);
+});
+
 test("each stage may start once its upstream artifacts are approved", () => {
   for (const [stage, approvedCount] of Object.entries(UPSTREAM)) {
     // Given
@@ -105,16 +123,53 @@ test("an agent cannot write another stage's artifact", () => {
   assertDenied(result, /writes only DESIGN\.md/);
 });
 
-test("build edits the bot entry and its folder after plan approval", () => {
+test("an agent may keep extra notes next to its artifact", () => {
   // Given
-  const root = workspace(3);
-  const paths = ["bots/comet.ts", "bots/comet/_targets.ts", "bots/comet/targets.test.ts"];
+  const root = workspace(1);
 
   // When
-  const results = paths.map((path) => decide(create(path, "x"), { root, stage: "build" }));
+  const result = decide(create("bots/comet/_workflow/ideas.md"), { root, stage: "design" });
+
+  // Then
+  assert.deepEqual(result, {});
+});
+
+test("build writes the final bot and its practice bots", () => {
+  // Given
+  const root = workspace(3);
+  const paths = ["bots/comet.ts", "bots/comet-thief.ts"];
+
+  // When
+  const results = paths.map((path) => decide(create(path), { root, stage: "build" }));
+
+  // Then
+  assert.deepEqual(results, [{}, {}]);
+});
+
+test("build may rewrite the upstream artifacts during a pivot", () => {
+  // Given
+  const root = workspace(3);
+  const names = ["INTENTION.md", "DESIGN.md", "PLAN.md"];
+
+  // When
+  const results = names.map((name) =>
+    decide(create(`bots/comet/_workflow/${name}`, DRAFT), { root, stage: "build" }),
+  );
 
   // Then
   assert.deepEqual(results, [{}, {}, {}]);
+});
+
+test("after a pivot, bot code waits until the artifacts are approved again", () => {
+  // Given
+  const root = workspace(3);
+  writeFileSync(join(root, "bots/comet/_workflow/INTENTION.md"), DRAFT);
+
+  // When
+  const result = decide(create("bots/comet.ts"), { root, stage: "build" });
+
+  // Then
+  assertDenied(result, /INTENTION\.md is not approved yet/);
 });
 
 test("build cannot edit code before the plan is approved", () => {
@@ -123,33 +178,45 @@ test("build cannot edit code before the plan is approved", () => {
   writeFileSync(join(root, "bots/comet/_workflow/PLAN.md"), DRAFT);
 
   // When
-  const result = decide(create("bots/comet.ts", "x"), { root, stage: "build" });
+  const result = decide(create("bots/comet.ts"), { root, stage: "build" });
 
   // Then
   assertDenied(result, /PLAN\.md is not approved yet/);
 });
 
-test("build cannot edit game source, shared helpers, or other bots", () => {
+test("stages before build cannot write bot code", () => {
   // Given
-  const root = workspace(3);
-  const paths = ["src/sdk.ts", "bots/_shared.ts", "bots/nearest.ts", "tests/game.test.ts"];
+  const root = workspace(2);
 
   // When
-  const results = paths.map((path) => decide(create(path, "x"), { root, stage: "build" }));
+  const result = decide(create("bots/comet.ts"), { root, stage: "plan" });
+
+  // Then
+  assertDenied(result, /Only Bot Build writes/);
+});
+
+test("game source, the baseline bot, and unowned bots stay read-only", () => {
+  // Given
+  const root = workspace(3);
+  const paths = ["src/sdk.ts", "tests/game.test.ts", "bots/nearest.ts", "bots/_shared.ts"];
+
+  // When
+  const results = paths.map((path) => decide(create(path), { root, stage: "build" }));
 
   // Then
   for (const result of results) assert.equal(result.permissionDecision, "deny");
 });
 
-test("review cannot change bot code", () => {
+test("hand-in never writes bot code", () => {
   // Given
   const root = workspace(4);
+  const paths = ["bots/comet.ts", "bots/comet-drone-bait.ts"];
 
   // When
-  const result = decide(create("bots/comet.ts", "x"), { root, stage: "review" });
+  const results = paths.map((path) => decide(create(path), { root, stage: "review" }));
 
   // Then
-  assertDenied(result, /Only Bot Build/);
+  for (const result of results) assertDenied(result, /Only Bot Build writes/);
 });
 
 test("multi-file replacements check every target", () => {
@@ -167,71 +234,76 @@ test("multi-file replacements check every target", () => {
   );
 
   // Then
-  assertDenied(result, /protected/);
+  assertDenied(result, /read-only/);
 });
 
-test("the terminal accepts only the runner for the current stage", () => {
+test("terminal commands, reading, and exploration subagents are allowed", () => {
+  // Given
+  const context = { root: workspace(), stage: "intention" };
+  const events = [
+    { tool_name: "run_in_terminal", tool_input: { command: "yarn bench --bots nearest" } },
+    { toolName: "read_file", toolArgs: { filePath: "src/sdk.ts" } },
+    { toolName: "runSubagent", toolArgs: { agentName: "Explore" } },
+  ];
+
+  // When
+  const results = events.map((event) => decide(event, context));
+
+  // Then
+  assert.deepEqual(results, [{}, {}, {}]);
+});
+
+test("the runner keeps holdout maps for the end of the build", () => {
+  // Given
+  const root = workspace(2);
+
+  // When
+  const attempt = () => parseRequest(["plan", "comet", "holdout"], root);
+
+  // Then
+  assert.throws(attempt, /Available in plan: .*bench/);
+});
+
+test("practice tournaments and packing run only at hand-in", () => {
   // Given
   const root = workspace(3);
-  const commands = ["yarn test", "node .github/bot-workflow/run.mjs review comet bench"];
 
   // When
-  const results = commands.map((command) => decide(terminal(command), { root, stage: "build" }));
+  const attempts = ["tournament", "pack"].map(
+    (op) => () => parseRequest(["build", "comet", op], root),
+  );
 
   // Then
-  assertDenied(results[0], /Run checks only through/);
-  assertDenied(results[1], /only the build stage/);
+  for (const attempt of attempts) assert.throws(attempt, /Available in build:/);
 });
 
-test("the holdout check is reserved for review", () => {
+test("the runner benches against chosen opponents on one biome", () => {
   // Given
-  const root = workspace(4);
-  const command = "node .github/bot-workflow/run.mjs build comet holdout";
+  const root = workspace(3);
+  const args = ["build", "comet", "bench", "forest", "--vs", "comet-thief,nearest"];
 
   // When
-  const result = decide(terminal(command), { root, stage: "build" });
+  const request = parseRequest(args, root);
 
   // Then
-  assertDenied(result, /Available in build: .*bench/);
-});
-
-test("runner commands may start from the workspace folder", () => {
-  // Given
-  const root = workspace(4);
-  const command = `cd "${root}" && node .github/bot-workflow/run.mjs review comet holdout forest`;
-
-  // When
-  const context = commandContext(command, { root, stage: "review" });
-
-  // Then
-  assert.deepEqual([context.bot, context.operation, context.biome], ["comet", "holdout", "forest"]);
+  assert.deepEqual(request.opponents, ["comet-thief", "nearest"]);
+  assert.equal(request.biome, "forest");
 });
 
 test("status and baseline run before any artifact exists", () => {
   // Given
   const root = workspace();
-  const commands = ["status", "baseline"].map(
-    (op) => `node .github/bot-workflow/run.mjs plan comet ${op}`,
+
+  // When
+  const requests = ["status", "baseline"].map((op) =>
+    parseRequest(["intention", "comet", op], root),
   );
 
-  // When
-  const results = commands.map((command) => decide(terminal(command), { root, stage: "plan" }));
-
   // Then
-  assert.deepEqual(results, [{}, {}]);
-});
-
-test("reading is allowed and unknown tools are blocked", () => {
-  // Given
-  const context = { root: workspace(), stage: "intention" };
-
-  // When
-  const read = decide({ toolName: "read_file", toolArgs: { filePath: "src/sdk.ts" } }, context);
-  const unknown = decide({ toolName: "runSubagent", toolArgs: {} }, context);
-
-  // Then
-  assert.deepEqual(read, {});
-  assertDenied(unknown, /Unknown tools/);
+  assert.deepEqual(
+    requests.map((request) => request.operation),
+    ["status", "baseline"],
+  );
 });
 
 test("approval needs both the status and a signature", () => {
@@ -248,66 +320,79 @@ test("approval needs both the status and a signature", () => {
 
 test("every stage agent runs its own guard and hands off to an existing agent", () => {
   // Given
-  const files = readdirSync(join(ROOT, ".github/agents")).filter((name) => name.endsWith(".md"));
-  const sources = files.map((name) => readFileSync(join(ROOT, ".github/agents", name), "utf8"));
-  const names = sources.map((source) => source.match(/^name: "(.+)"$/m)[1]);
+  const agents = agentSources();
+  const names = agents.map(({ source }) => source.match(/^name: "(.+)"$/m)[1]);
 
   // When
-  const targets = sources.flatMap((source) =>
+  const targets = agents.flatMap(({ source }) =>
     [...source.matchAll(/agent: "(.+)"$/gm)].map((m) => m[1]),
   );
 
   // Then
-  assert.deepEqual(
-    files.sort(),
-    Object.keys(STAGES)
-      .map((stage) => `bot-${stage}.agent.md`)
-      .sort(),
-  );
+  const expected = Object.keys(STAGES).map((stage) => `bot-${stage}.agent.md`);
+  assert.deepEqual(agents.map(({ name }) => name).sort(), expected.sort());
+  for (const { name, source } of agents)
+    assert.match(source, new RegExp(`guard\\.mjs ${name.slice(4, -9)}"`));
   for (const target of targets) assert.ok(names.includes(target), target);
 });
 
 test("agent instructions never forbid writing a draft", () => {
   // Given
-  const folder = join(ROOT, ".github/agents");
-  const files = readdirSync(folder).filter((name) => name.endsWith(".md"));
+  const agents = agentSources();
 
   // When
-  const sources = files.map((name) => readFileSync(join(folder, name), "utf8"));
+  const forbidding = agents.filter(({ source }) =>
+    /complete-proposal|no draft|before explicit/i.test(source),
+  );
 
   // Then
-  for (const source of sources)
-    assert.doesNotMatch(source, /complete-proposal|no draft|before explicit/i);
+  assert.deepEqual(forbidding, []);
 });
 
-test("every agent addresses the people at the keyboard by role", () => {
+test("every agent loads the shared workshop rules", () => {
   // Given
-  const folder = join(ROOT, ".github/agents");
-  const files = readdirSync(folder).filter((name) => name.endsWith(".md"));
+  const agents = agentSources();
 
   // When
-  const sources = files.map((name) => readFileSync(join(folder, name), "utf8"));
+  const missing = agents.filter(
+    ({ source }) => !source.includes("../instructions/bot-development.instructions.md"),
+  );
 
   // Then
-  for (const source of sources)
-    assert.match(source, /Talk to the three people[\s\S]*Every question starts with its role/);
+  assert.deepEqual(missing, []);
 });
 
 test("every agent asks each of the three roles at least twice, and equally often", () => {
-  // Given
-  const folder = join(ROOT, ".github/agents");
-  const files = readdirSync(folder).filter((name) => name.endsWith(".md"));
-
-  // When
-  const sources = files.map((name) => readFileSync(join(folder, name), "utf8"));
-
-  // Then
-  for (const source of sources) {
+  for (const { name, source } of agentSources()) {
+    // Given
     const checklist = source.split("## Every role speaks")[1]?.split("\n## ")[0] ?? "";
+
+    // When
     const counts = ["Intent owner", "Orchestrator", "Risk owner"].map(
       (role) => checklist.split(`- "**${role}:**`).length - 1,
     );
-    assert.ok(Math.min(...counts) >= 2, counts.join());
-    assert.equal(Math.max(...counts), Math.min(...counts), counts.join());
+
+    // Then
+    assert.ok(Math.min(...counts) >= 2, `${name}: ${counts.join()}`);
+    assert.equal(Math.max(...counts), Math.min(...counts), `${name}: ${counts.join()}`);
   }
+});
+
+test("the workshop timer and the agents agree on names and minutes", () => {
+  // Given
+  const timer = readFileSync(join(ROOT, "workshop-timer.html"), "utf8");
+  const phases = [...timer.matchAll(/min: (\d+),\s*agent: ["'](Bot [^"']+)["']/g)];
+  const agents = agentSources().map(({ source }) => source);
+
+  // When
+  const matched = phases.filter(([, minutes, agent]) =>
+    agents.some(
+      (source) =>
+        source.includes(`name: "${agent}"`) && source.includes(`about ${minutes} minutes`),
+    ),
+  );
+
+  // Then
+  assert.equal(phases.length, Object.keys(STAGES).length);
+  assert.equal(matched.length, phases.length);
 });
