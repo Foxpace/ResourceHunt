@@ -1,6 +1,6 @@
 import { createGame } from "../runtime/matches.ts";
-import { BIOMES } from "../engine/biomes.ts";
-import { createTournamentGame, recordTournamentScores } from "../runtime/tournament-round.ts";
+import { tournamentBiomes } from "../competition/tournament.ts";
+import { runTournamentRound } from "../runtime/tournament-round.ts";
 import { normalizeConfig } from "../engine/config.ts";
 import { DEFAULT_CONFIG, MAX_BOTS } from "../engine/types.ts";
 import { discoverBots, selectBots, getDefaultBotIds } from "../runtime/bots.ts";
@@ -17,8 +17,10 @@ interface GameSession {
   touched: number;
   busy: boolean;
 }
+
 const json = (data: unknown, status = 200) =>
   Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
+const MAX_OPEN_MATCHES = 12;
 
 export function createGameApi() {
   return new GameApi();
@@ -26,9 +28,9 @@ export function createGameApi() {
 
 class GameApi {
   private closed = false;
-  private runningRound = false;
-  private roundGame?: Game;
+  private activeRound?: AbortController;
   private sessions = new Map<string, GameSession>();
+  private openingSessions = 0;
   private cleanup: ReturnType<typeof setInterval>;
 
   constructor() {
@@ -37,6 +39,8 @@ class GameApi {
   }
 
   async fetch(request: Request): Promise<Response> {
+    if (this.closed) return closedServerResponse();
+
     const url = new URL(request.url);
     const origin = request.headers.get("origin");
     const crossOriginRequest = !!(origin && origin !== url.origin);
@@ -52,7 +56,7 @@ class GameApi {
   dispose(): void {
     this.closed = true;
     clearInterval(this.cleanup);
-    this.roundGame?.dispose();
+    this.activeRound?.abort();
 
     for (const session of this.sessions.values()) session.game.dispose();
 
@@ -74,7 +78,7 @@ class GameApi {
     if (creationRequested) return this.createSession(request);
 
     const roundRequested = path === "/api/tournament/round" && request.method === "POST";
-    if (roundRequested) return this.runTournamentRound(request);
+    if (roundRequested) return this.handleTournamentRound(request);
 
     const match = /^\/api\/games\/([a-f0-9-]+)(?:\/(step|replay))?$/.exec(path);
     if (!match) return json({ error: "Not found" }, 404);
@@ -88,40 +92,30 @@ class GameApi {
     return this.handleSessionRequest({ method: request.method, id, action: match[2] }, session);
   }
 
-  private async runTournamentRound(request: Request): Promise<Response> {
-    if (this.runningRound) return json({ error: "A tournament round is already running." }, 429);
-
-    this.runningRound = true;
-    try {
-      this.roundGame = await this.createTournamentGame(request);
-      if (this.closed) throw new Error("Game server is closed");
-      return json(await recordTournamentScores(this.roundGame));
-    } finally {
-      this.roundGame?.dispose();
-      this.roundGame = undefined;
-      this.runningRound = false;
-    }
-  }
-
-  private async createTournamentGame(request: Request): Promise<Game> {
-    const body = (await request.json()) as {
-      config?: unknown;
-      botIds?: unknown;
-      roundIndex?: unknown;
+  private async handleTournamentRound(request: Request): Promise<Response> {
+    if (this.activeRound) return json({ error: "A tournament round is already running." }, 429);
+    const round = new AbortController();
+    const signal = AbortSignal.any([request.signal, round.signal]);
+    const release = () => {
+      if (this.activeRound === round) this.activeRound = undefined;
     };
-    const config = parseUiConfig(body.config);
-    if (!Array.isArray(body.botIds)) throw new Error(`Select 1 to ${MAX_BOTS} bot instances`);
+    this.activeRound = round;
+    signal.addEventListener("abort", release, { once: true });
 
-    const bots = selectBots(await discoverBots(), body.botIds);
-    const biomes = Object.keys(BIOMES) as (keyof typeof BIOMES)[];
-    const roundIndex = body.roundIndex ?? biomes.indexOf(config.biome);
-    if (typeof roundIndex !== "number") throw new Error("Invalid tournament round index");
+    try {
+      signal.throwIfAborted();
+      const { bots, config, roundIndex } = await readTournamentRound(request, signal);
+      const scores = await runTournamentRound(bots, { config, roundIndex }, signal);
+      signal.throwIfAborted();
+      return json(scores);
+    } catch (error) {
+      if (round.signal.aborted) return closedServerResponse();
 
-    const integerIndex = Number.isSafeInteger(roundIndex);
-    const nonnegativeIndex = roundIndex >= 0;
-    const validIndex = integerIndex && nonnegativeIndex;
-    if (!validIndex) throw new Error("Invalid tournament round index");
-    return createTournamentGame(bots, config, roundIndex);
+      throw error;
+    } finally {
+      signal.removeEventListener("abort", release);
+      release();
+    }
   }
 
   private async listBots(): Promise<Response> {
@@ -136,18 +130,32 @@ class GameApi {
   }
 
   private async createSession(request: Request): Promise<Response> {
-    if (this.sessions.size >= 12)
+    if (this.sessions.size + this.openingSessions >= MAX_OPEN_MATCHES)
       return json({ error: "Too many open matches. Reset or close another match." }, 429);
 
-    const body = (await request.json()) as { config?: unknown; botIds?: unknown };
-    const config = parseUiConfig(body.config);
-    if (!Array.isArray(body.botIds)) throw new Error(`Select 1 to ${MAX_BOTS} bot instances`);
+    this.openingSessions++;
+    try {
+      const { config, botIds } = await readMatchRequest(request);
+      if (this.closed) return closedServerResponse();
 
-    const catalog = await discoverBots();
-    const game = await createGame(selectBots(catalog, body.botIds), config);
+      const catalog = await discoverBots();
+      if (this.closed) return closedServerResponse();
+
+      const game = await createGame(selectBots(catalog, botIds), config);
+      return this.publishSession(game);
+    } finally {
+      this.openingSessions--;
+    }
+  }
+
+  private publishSession(game: Game): Response {
+    if (this.closed) {
+      game.dispose();
+      return closedServerResponse();
+    }
+
     const id = crypto.randomUUID();
     this.sessions.set(id, { game, touched: Date.now(), busy: false });
-
     return json({ id, snapshot: game.snapshot() }, 201);
   }
 
@@ -198,6 +206,37 @@ class GameApi {
 
 function busySessionResponse(): Response {
   return json({ error: "Wait for the current tick to finish" }, 409);
+}
+
+function closedServerResponse(): Response {
+  return json({ error: "Game server is closed" }, 503);
+}
+
+async function readTournamentRound(request: Request, signal: AbortSignal) {
+  const { config, botIds, roundIndex: requestedIndex } = await readMatchRequest(request);
+  signal.throwIfAborted();
+  const roundIndex = requestedIndex ?? tournamentBiomes.indexOf(config.biome);
+  if (typeof roundIndex !== "number") throw new Error("Invalid tournament round index");
+
+  const integerIndex = Number.isSafeInteger(roundIndex);
+  const nonnegativeIndex = roundIndex >= 0;
+  const validIndex = integerIndex && nonnegativeIndex;
+  if (!validIndex) throw new Error("Invalid tournament round index");
+
+  const bots = selectBots(await discoverBots(), botIds);
+  return { bots, config, roundIndex };
+}
+
+async function readMatchRequest(request: Request) {
+  const body = (await request.json()) as {
+    config?: unknown;
+    botIds?: unknown;
+    roundIndex?: unknown;
+  } | null;
+  const config = parseUiConfig(body?.config);
+  if (!Array.isArray(body?.botIds)) throw new Error(`Select 1 to ${MAX_BOTS} bot instances`);
+
+  return { config, botIds: body.botIds, roundIndex: body.roundIndex };
 }
 
 function parseUiConfig(value: unknown) {

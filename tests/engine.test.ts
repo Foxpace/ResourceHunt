@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generateMap, normalizeConfig, findPath, parseReplay, samePosition } from "../src/index.ts";
+import { DIRECTIONS, distanceField, findNearestRoute } from "../src/sdk.ts";
+import { copyObservationTerrain } from "../src/engine/observation-terrain.ts";
 import { randomFromSeed } from "../src/engine/random.ts";
 import {
   createActionSequenceGame,
@@ -81,6 +83,12 @@ for (const scenario of [
     expected: { cost: 4, steps: ["S", "E", "E", "N"] },
   },
   {
+    name: "equal-cost alternatives",
+    middle: "grass" as const,
+    target: { x: 1, y: 1 },
+    expected: { cost: 2, steps: ["E", "S"] },
+  },
+  {
     name: "already being home",
     middle: "grass" as const,
     target: { x: 0, y: 0 },
@@ -107,6 +115,79 @@ for (const scenario of [
     assert.deepEqual(route, scenario.expected);
   });
 }
+
+test("a distance field stopped at a target retains the routes already discovered", () => {
+  // Given
+  const map = createMap([
+    ["grass", "grass"],
+    ["grass", "grass"],
+  ]);
+
+  // When
+  const routes = distanceField(map, { x: 0, y: 0 }, { x: 1, y: 0 });
+
+  // Then
+  assert.deepEqual([...routes.keys()], ["0,0", "1,0", "0,1"]);
+});
+
+test("nearest routes resolve equal travel costs in target order", () => {
+  // Given
+  const map = createMap([["grass", "grass", "grass"]]);
+  const from = { x: 1, y: 0 };
+  const preferred = { x: 2, y: 0, id: "preferred" };
+
+  // When
+  const nearest = findNearestRoute(map, from, [preferred, { x: 0, y: 0, id: "other" }]);
+
+  // Then
+  assert.equal(nearest?.target, preferred);
+});
+
+test("nearest routes skip unreachable targets", () => {
+  // Given
+  const map = createMap([["grass", "grass", "water", "grass"]]);
+  const from = { x: 0, y: 0 };
+  const reachable = { x: 1, y: 0 };
+
+  // When
+  const nearest = findNearestRoute(map, from, [{ x: 3, y: 0 }, reachable]);
+
+  // Then
+  assert.equal(nearest?.target, reachable);
+});
+
+test("editing an observation's terrain bypasses previously computed routes", () => {
+  // Given
+  const map = copyObservationTerrain(createMap([["grass", "grass", "grass"]]));
+  const from = { x: 0, y: 0 };
+  const to = { x: 2, y: 0 };
+  assert.equal(findPath(map, from, to)?.cost, 2);
+
+  // When
+  map.tiles[0]![1] = "mountain";
+
+  // Then
+  assert.equal(findPath(map, from, to)?.cost, 4);
+});
+
+test("cached searches keep their offsets when a direction object is replaced", (context) => {
+  // Given
+  const map = copyObservationTerrain(createMap([["grass", "grass", "grass"]]));
+  const from = { x: 0, y: 0 };
+  const east = DIRECTIONS.E;
+  context.after(() => {
+    DIRECTIONS.E = { ...east, x: 1 };
+  });
+  assert.equal(findPath(map, from, { x: 1, y: 0 })?.cost, 1);
+
+  // When
+  east.x = 0;
+  DIRECTIONS.E = { x: 1, y: 0 };
+  const route = findPath(map, from, { x: 2, y: 0 });
+
+  // Then
+  assert.deepEqual(route, { cost: 2, steps: ["E", "E"] });
+});
 
 for (const invalidConfig of [
   { width: 12 },
@@ -213,6 +294,65 @@ test("mutating observations and returned snapshots cannot change engine state", 
   // Then
   assert.equal(game.result().standings[0]!.score, 0);
   assert.ok(game.snapshot().resources.length > 0);
+});
+
+test("terrain rows are independent across observations and snapshots", async (context) => {
+  // Given
+  const bot = createBotController("test", (state) => {
+    state.map.tiles[0]![0] = "water";
+    return { type: "skip" };
+  });
+  const game = createGame(context, { bots: [bot], config: { biome: "valley" } });
+  const initialMap = game.snapshot().map;
+
+  // When
+  const snapshot = await game.step();
+  snapshot.map.tiles[0]![0] = "lava";
+
+  // Then
+  assert.deepEqual(game.snapshot().map, initialMap);
+});
+
+test("running to the end produces the same replay as stepping", async (context) => {
+  // Given
+  const headless = createGame(context, { enableWorld: true });
+  const stepped = createGame(context, { enableWorld: true });
+  await headless.step();
+
+  // When
+  await headless.runToEnd();
+  await advanceGame(stepped, stepped.config.ticks);
+
+  // Then
+  assert.deepEqual(headless.replay(), stepped.replay());
+});
+
+test("mutating resource piles in a tick snapshot cannot change its replay frame", async (context) => {
+  // Given
+  const game = createGame(context);
+  const snapshot = await game.step();
+  const amount = snapshot.resources[0]!.amount;
+
+  // When
+  snapshot.resources[0]!.amount = 0;
+
+  // Then
+  assert.equal(game.replay().frames[0]!.resources[0]!.amount, amount);
+});
+
+test("mutating an exported replay cannot change the next export", async (context) => {
+  // Given
+  const game = createGame(context);
+  await game.step();
+  const expected = game.replay();
+  const exported = game.replay();
+
+  // When
+  exported.initial.map.tiles[0]![0] = "lava";
+  exported.frames[0]!.resources[0]!.amount = 0;
+
+  // Then
+  assert.deepEqual(game.replay(), expected);
 });
 
 test("invalid actions and exceptions consume turns and report errors", async (context) => {

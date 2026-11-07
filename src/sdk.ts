@@ -29,6 +29,7 @@ export {
 export type { BankingSite, BankingRoute, StealTarget } from "./engine/competition.ts";
 export {
   findPath,
+  findNearestRoute,
   distanceField,
   positionKey,
   samePosition,
@@ -42,6 +43,7 @@ export {
   getInventoryStats,
   canGrab,
   planTrip,
+  findBestTrip,
   getOpponentArrivalTimes,
 } from "./engine/bot-helpers.ts";
 export type {
@@ -50,6 +52,7 @@ export type {
   TripPlan,
   TripFailure,
   OpponentArrivalTime,
+  OpponentArrivalTicks,
 } from "./engine/bot-helpers.ts";
 
 export { BIOMES } from "./engine/biomes.ts";

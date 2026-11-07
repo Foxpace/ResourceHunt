@@ -12,7 +12,8 @@ tournament" and unlocks `pack`. The agent writes evidence and findings; the risk
 
 ## Practice tournaments
 
-<!-- Copied from `evidence/review-tournament.txt`: three tournaments, first to three round wins. -->
+<!-- Cite `evidence/review-tournament.txt` and its companion JSON. Give total banked points and
+credited round wins for each seed. Note shared wins and cite the round for any finding. -->
 
 | Tournament | Place | Round wins | Score | Errors | Winner |
 | ---------- | ----- | ---------- | ----- | ------ | ------ |
@@ -40,6 +41,6 @@ remaining risk? -->
 
 ## Hand-in
 
-- [ ] Practice bots removed and `check` passes (`pack`)
+- [ ] Hand-in checks pass (`pack`)
 - [ ] `results/<bot-id>-handin.zip` with `bots/<bot-id>.ts` and `bots/<bot-id>/`
 - [ ] Zip sent to the facilitator

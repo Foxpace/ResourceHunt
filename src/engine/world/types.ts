@@ -35,7 +35,14 @@ export const CLASSIC_WORLD_RULES: WorldRules = {
 };
 
 export type HazardKind =
-  "lava" | "boulders" | "meteors" | "storm" | "sandstorm" | "squall" | "blizzard" | "wildfire";
+  | "lava"
+  | "boulders"
+  | "meteors"
+  | "storm"
+  | "sandstorm"
+  | "squall"
+  | "blizzard"
+  | "wildfire";
 export const HAZARD_KINDS: HazardKind[] = [
   "lava",
   "boulders",

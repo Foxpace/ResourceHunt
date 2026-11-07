@@ -918,6 +918,7 @@ body[data-mode="tournament"] .match-only {
 }
 .transport {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }

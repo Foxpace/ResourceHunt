@@ -1,9 +1,17 @@
+import { registerHooks } from "node:module";
 import { parentPort } from "node:worker_threads";
-import type { WorkerRequest, WorkerResponse } from "./worker-protocol.ts";
 import { randomFromSeed } from "../engine/random.ts";
-import type { Bot, BotConstructor } from "../engine/types.ts";
+import { copyObservationTerrain } from "../engine/observation-terrain.ts";
+import type { Bot, BotConstructor, BotMetadata, GameMap, Observation } from "../engine/types.ts";
+import type {
+  CheckedBotSource,
+  WorkerObservation,
+  WorkerRequest,
+  WorkerResponse,
+} from "./worker-protocol.ts";
 
 let bot: Bot | undefined;
+let terrain: GameMap | undefined;
 // Keep CLI stdout valid JSON when bots print debug information.
 console.log = console.info = console.debug = (...values: unknown[]) => console.error(...values);
 if (!parentPort) throw new Error("Bot worker must run in a worker thread");
@@ -14,7 +22,7 @@ port.on("message", async (message: WorkerRequest) => {
   try {
     if (message.type === "init") await initializeBot(message);
     else if (message.type === "act") {
-      const action = await bot!.act(message.observation);
+      const action = await bot!.act(restoreObservation(message.observation));
       respond({ type: "decision", action });
     }
   } catch (error) {
@@ -25,50 +33,58 @@ port.on("message", async (message: WorkerRequest) => {
   }
 });
 
+function restoreObservation(observation: WorkerObservation): Observation {
+  terrain = observation.map ?? terrain;
+  if (!terrain) throw new Error("Missing bot terrain");
+
+  return { ...observation, map: copyObservationTerrain(terrain) };
+}
+
 async function initializeBot(message: Extract<WorkerRequest, { type: "init" }>): Promise<void> {
   const random = randomFromSeed(message.seed);
   Math.random = random;
-  const module = await import(message.url);
-  const BotClass = module.default as BotConstructor;
-  const metadata = validateBotClass(BotClass);
-  if (!message.inspect) {
-    bot = new BotClass({ random });
-    if (typeof bot.act !== "function") throw new Error("Bot class needs an act(state) method");
-  } else if (typeof BotClass.prototype.act !== "function")
+  const BotClass = await importCheckedBot(message.source);
+  const { metadata } = message.source;
+  if (typeof BotClass !== "function") throw new Error("Default-export a bot class");
+  if (typeof BotClass.prototype?.act !== "function")
     throw new Error("Bot class needs an act(state) method");
+  if (!metadataMatches(BotClass.metadata, metadata))
+    throw new Error("Bot metadata changed during module initialization");
 
-  respond({
-    type: "ready",
-    metadata: { id: metadata.id, name: metadata.name, description: metadata.description },
-  });
+  bot = new BotClass({ random });
+  if (typeof bot.act !== "function") throw new Error("Bot class needs an act(state) method");
+
+  respond({ type: "ready", metadata });
 }
 
-function validateBotClass(BotClass: BotConstructor) {
-  const metadata = BotClass?.metadata;
+function metadataMatches(actual: BotMetadata | undefined, expected: BotMetadata): boolean {
+  if (!actual) return false;
 
-  const hasClass = typeof BotClass === "function" && !!metadata;
-  if (!hasClass) invalidBotClass();
-
-  const idValid = typeof metadata.id === "string" && /^[a-z0-9][a-z0-9-]{0,47}$/.test(metadata.id);
-  const nameValid = isValidBotName(metadata.name);
-  const descriptionValid =
-    typeof metadata.description === "string" && metadata.description.length <= 300;
-  if (!idValid || !nameValid || !descriptionValid) invalidBotClass();
-
-  return metadata;
-}
-
-function isValidBotName(name: unknown): boolean {
-  if (typeof name !== "string") return false;
-
-  const hasVisibleCharacters = name.trim().length > 0;
-  const fitsLengthLimit = name.length <= 60;
-
-  return hasVisibleCharacters && fitsLengthLimit;
-}
-
-function invalidBotClass(): never {
-  throw new Error(
-    "Default-export a bot class with static metadata { id, name, description }. ID must use lowercase letters, numbers, and hyphens.",
+  return (
+    actual.id === expected.id &&
+    actual.name === expected.name &&
+    actual.description === expected.description
   );
+}
+
+async function importCheckedBot({ url, code }: CheckedBotSource): Promise<BotConstructor> {
+  // Load the checked entry at its real URL so relative imports keep working.
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier !== url) return nextResolve(specifier, context);
+
+      return { url, format: "module", shortCircuit: true };
+    },
+    load(moduleUrl, context, nextLoad) {
+      if (moduleUrl !== url) return nextLoad(moduleUrl, context);
+
+      return { format: "module", source: code, shortCircuit: true };
+    },
+  });
+
+  try {
+    return (await import(url)).default;
+  } finally {
+    hooks.deregister();
+  }
 }

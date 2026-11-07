@@ -4,6 +4,7 @@ import { createMatchStatistics } from "../src/engine/match-statistics.ts";
 import { manhattanDistance } from "../src/engine/grid.ts";
 import {
   canSabotage,
+  canRepair,
   canDeployTrap,
   canStrike,
   canLootCache,
@@ -90,9 +91,11 @@ test("an owner repairs disabled banking in one turn", () => {
   disableDepot(scenario);
 
   // When
+  const repairAvailable = canRepair(scenario.observe("defender"), "outpost-1");
   scenario.act({ type: "repair", targetId: "outpost-1" }, "defender");
 
   // Then
+  assert.equal(repairAvailable, true);
   assert.equal(scenario.depot.disabledUntilTick, 0);
   assert.equal(getBankingSites(scenario.observe("defender")).length, 2);
 });
@@ -247,7 +250,7 @@ test("a drone pursues an exposed bot and stuns it on arrival", () => {
   scenario.state.drones = [createDrone()];
 
   // When
-  scenario.controller.finishTick(scenario.context);
+  scenario.advanceTo(10);
 
   // Then
   assert.deepEqual(scenario.state.drones[0]!.position, scenario.defender.position);
@@ -299,7 +302,7 @@ test("guard protects a bot from a drone attack", () => {
   scenario.act({ type: "guard" }, "defender");
 
   // When
-  scenario.controller.finishTick(scenario.context);
+  scenario.advanceTo(11);
 
   // Then
   assert.equal(scenario.defender.travelRemaining, 0);
@@ -315,7 +318,7 @@ test("a drone leaves loose resources in place when it patrols over them", () => 
   scenario.state.drones = [createDrone()];
 
   // When
-  scenario.controller.finishTick(scenario.context);
+  scenario.advanceTo(10);
 
   // Then
   assert.deepEqual(scenario.state.drones[0]!.position, { x: 7, y: 6 });
@@ -359,16 +362,15 @@ test("a solo bot can defeat a ready guardian by guarding between strikes", () =>
   // Given
   const scenario = new WorldScenario();
   scenario.defender.position = scenario.defender.base;
-  scenario.state.caches = [createCache({ nextAttackTick: 0 })];
+  scenario.state.caches = [createCache({ nextAttackTick: 11 })];
 
   // When
   const actions = [];
   for (let tick = 10; tick < 15; tick++) {
-    scenario.context.tick = tick;
+    scenario.advanceTo(tick);
     const action = getGuardianFightAction(scenario.observe(), "cache-1")!;
     actions.push(action.type);
     scenario.act(action);
-    scenario.controller.finishTick(scenario.context);
   }
 
   // Then
@@ -376,7 +378,7 @@ test("a solo bot can defeat a ready guardian by guarding between strikes", () =>
   assert.equal(scenario.state.caches[0]!.guardianHealth, 0);
 });
 
-test("a nonlethal unguarded hit leaves the bot exposed to retaliation", () => {
+test("a guardian repels an unguarded bot before its next strike", () => {
   // Given
   const scenario = new WorldScenario();
   scenario.defender.position = scenario.defender.base;
@@ -384,7 +386,7 @@ test("a nonlethal unguarded hit leaves the bot exposed to retaliation", () => {
 
   // When
   scenario.act({ type: "strike", targetId: "cache-1" });
-  scenario.controller.finishTick(scenario.context);
+  scenario.advanceTo(11);
 
   // Then
   assert.equal(scenario.state.caches[0]!.guardianHealth, 2);
@@ -427,7 +429,7 @@ test("guardians repel adjacent exposed bots and spill one cargo unit", () => {
   scenario.state.caches = [createCache({ nextAttackTick: 0 })];
 
   // When
-  scenario.controller.finishTick(scenario.context);
+  scenario.advanceTo(10);
 
   // Then
   assert.equal(scenario.attacker.inventory.length, 1);
@@ -436,7 +438,7 @@ test("guardians repel adjacent exposed bots and spill one cargo unit", () => {
   assert.equal(manhattanDistance(scenario.attacker.position, { x: 6, y: 6 }), 4);
 });
 
-test("guard protects against a guardian retaliation", () => {
+test("guard protects against a guardian on the next world turn", () => {
   // Given
   const scenario = new WorldScenario();
   scenario.state.caches = [createCache({ nextAttackTick: 0 })];
@@ -444,7 +446,7 @@ test("guard protects against a guardian retaliation", () => {
   scenario.defender.position = scenario.defender.base;
 
   // When
-  scenario.controller.finishTick(scenario.context);
+  scenario.advanceTo(11);
 
   // Then
   assert.equal(scenario.attacker.inventory.length, 2);
@@ -545,7 +547,7 @@ test("guardians leave bots in protected starting areas alone", () => {
   scenario.state.caches = [createCache({ position: { x: 3, y: 1 }, nextAttackTick: 0 })];
 
   // When
-  scenario.controller.finishTick(scenario.context);
+  scenario.advanceTo(10);
 
   // Then
   assert.equal(scenario.attacker.inventory.length, 2);
@@ -560,7 +562,7 @@ test("an idle drone patrols when there are no exposed bots", () => {
   scenario.state.drones = [createDrone()];
 
   // When
-  scenario.controller.finishTick(scenario.context);
+  scenario.advanceTo(10);
 
   // Then
   assert.equal(manhattanDistance(scenario.state.drones[0]!.position, { x: 6, y: 6 }), 1);
@@ -574,7 +576,7 @@ test("a guardian pursues an intruder while its cache stays in place", () => {
   scenario.defender.position = scenario.defender.base;
 
   // When
-  scenario.controller.finishTick(scenario.context);
+  scenario.advanceTo(10);
 
   // Then
   assert.deepEqual(scenario.state.caches[0]!.guardianPosition, { x: 5, y: 6 });
@@ -604,7 +606,7 @@ test("guardian pushback cannot cross an impassable tile", () => {
   scenario.context.map.tiles[6]![4] = "water";
 
   // When
-  scenario.controller.finishTick(scenario.context);
+  scenario.advanceTo(10);
 
   // Then
   const distanceFromCache = manhattanDistance(scenario.attacker.position, { x: 6, y: 6 });
@@ -621,7 +623,7 @@ test("a guardian pushes a bot at the edge of its territory three tiles away", ()
   const startingPosition = scenario.defender.position;
 
   // When
-  scenario.controller.finishTick(scenario.context);
+  scenario.advanceTo(10);
 
   // Then
   assert.equal(manhattanDistance(scenario.defender.position, startingPosition), 3);
@@ -634,7 +636,7 @@ test("a drone attack stuns the bot and steals one carried resource", () => {
   scenario.state.drones = [createDrone({ position: scenario.defender.position })];
 
   // When
-  scenario.controller.finishTick(scenario.context);
+  scenario.advanceTo(10);
 
   // Then
   assert.equal(scenario.defender.travelRemaining, 1);
@@ -671,7 +673,7 @@ test("a drone with room for cargo favors a loaded bot over a closer empty bot", 
   scenario.defender.position = { x: 8, y: 6 };
 
   // When
-  scenario.controller.finishTick(scenario.context);
+  scenario.advanceTo(10);
 
   // Then
   assert.deepEqual(drone.position, { x: 7, y: 6 });

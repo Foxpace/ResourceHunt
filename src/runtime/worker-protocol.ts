@@ -1,8 +1,16 @@
-import type { BotMetadata, Observation } from "../engine/types.ts";
+import type { BotMetadata, GameMap, Observation } from "../engine/types.ts";
+
+export type WorkerObservation = Omit<Observation, "map"> & { map?: GameMap };
+
+export interface CheckedBotSource {
+  url: string;
+  code: string;
+  metadata: BotMetadata;
+}
 
 export type WorkerRequest =
-  | { type: "init"; url: string; seed: string; inspect: boolean }
-  | { type: "act"; observation: Observation };
+  | { type: "init"; source: CheckedBotSource; seed: string }
+  | { type: "act"; observation: WorkerObservation };
 
 export type WorkerResponse =
   | { type: "ready"; metadata: BotMetadata }

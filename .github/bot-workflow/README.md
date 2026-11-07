@@ -35,15 +35,15 @@ It follows [the AI-native SDLC playbook](https://claude.com/resources/articles/t
 Each agent runs `node .github/bot-workflow/guard.mjs <stage>` before every tool call. It inspects only file edits:
 
 - Writes outside `bots/`, symlinked paths, and `bots/nearest.ts` are blocked.
-- A stage writes nothing until its upstream artifacts exist with an approved status and a signed `Approved by:` line.
+- A stage writes nothing until its upstream artifacts have an approved status and a signer. The hook accepts the `Status` and `Approved by` fields as plain lines, list items, blockquotes, or two-column table rows. The approver still gives an explicit yes.
 - Each agent writes only its own stage artifact; other notes and evidence in `_workflow/` are fine.
 - During a pivot, Bot Build may also rewrite INTENTION.md, DESIGN.md, and PLAN.md. Its code stays blocked until all three are approved again.
 - `.ts` files are written only by Bot Build, and only as `bots/<team>.ts`, `bots/<team>-<name>.ts`, or inside `bots/<team>/`, where `bots/<team>/_workflow/` exists. Bot Hand-in writes no code.
 
-Everything else is allowed: reading, searching, the Explore subagent, and any terminal command. The runner keeps two nudges: `holdout` runs only in Build, once at the end, and `pack` (delete practice bots, `check`, zip to `results/<bot-id>-handin.zip`) runs only after REVIEW.md is approved. Evidence goes to `bots/<bot-id>/_workflow/evidence/`, and replays go to `results/`, which git ignores.
+Everything else is allowed: reading, searching, the Explore subagent, and any terminal command. The runner keeps two nudges: `holdout` runs only in Build, once at the end, and `pack` runs only after REVIEW.md is approved. `pack` runs the checks and writes `results/<bot-id>-handin.zip` with the final bot and team folder. Practice bots stay on disk. The runner's `check` requires bot discovery, types, and structure rules to pass. Prettier differences are warnings. The runner skips formatting when Prettier is unavailable. Evidence goes to `bots/<bot-id>/_workflow/evidence/` as text, with companion JSON for benchmarks. Replays go to `results/`, which git ignores.
 
 ## Maintaining
 
-- Test the guard with `node --test .github/bot-workflow/guard.test.mjs`. It also checks that every agent loads the shared rules, asks each role equally often, and matches the timer's names and minutes.
+- Run `node --test .github/bot-workflow/*.test.mjs` to check approval gates, agent definitions, and evidence calculations.
 - Keep the agent frontmatter stable: tool list, hook command, and handoffs. The tests check that every handoff names an existing agent.
-- These are local guardrails, not a sandbox. The terminal is unrestricted, hooks can be disabled in user settings, and humans can edit anything. Bot code runs with normal Node permissions, so run only trusted bots.
+- Workflow terminal commands and match workers run with the developer's permissions. Bot discovery checks source without running it. Play only bots you trust.

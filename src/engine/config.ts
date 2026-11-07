@@ -1,6 +1,8 @@
 import { DEFAULT_CONFIG, type GameConfig } from "./types.ts";
 import { BIOMES } from "./biomes.ts";
 
+export const MAX_SEED_LENGTH = 200;
+
 export function normalizeConfig(input: Partial<GameConfig> = {}): GameConfig {
   const config = { ...DEFAULT_CONFIG, ...input };
 
@@ -38,8 +40,8 @@ function validateConfigOptions(config: GameConfig): void {
   }
 
   const seedLength = typeof config.seed === "string" ? config.seed.length : 0;
-  const invalidSeed = seedLength < 1 || seedLength > 200;
-  if (invalidSeed) throw new Error("seed must contain 1 to 200 characters");
+  const invalidSeed = seedLength < 1 || seedLength > MAX_SEED_LENGTH;
+  if (invalidSeed) throw new Error(`seed must contain 1 to ${MAX_SEED_LENGTH} characters`);
 
   const unknownBaseLayout = config.baseLayout !== "edges" && config.baseLayout !== "center";
   if (unknownBaseLayout) throw new Error("baseLayout must be edges or center");

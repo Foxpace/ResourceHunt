@@ -27,10 +27,6 @@ export class WorldController {
     expireStolenDroneCargo(turn);
     this.weather.advance(turn);
     for (const bot of context.bots) triggerCargoTrap(turn, bot);
-  }
-
-  finishTick(context: WorldContext): void {
-    const turn = { context, state: this.state };
     advanceScavengerDrones(turn, this.droneMinds);
     advanceCacheGuardians(turn);
   }

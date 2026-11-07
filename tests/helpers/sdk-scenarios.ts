@@ -110,14 +110,18 @@ class PlannedTrip {
     assert.ok(pile);
     this.plan = planTrip(state, pile, 2);
     assert.ok(this.plan.feasible);
-    const outbound = this.plan.outbound!.steps.map((direction): Action => ({
-      type: "move",
-      direction,
-    }));
-    const homeward = this.plan.homeward!.steps.map((direction): Action => ({
-      type: "move",
-      direction,
-    }));
+    const outbound = this.plan.outbound!.steps.map(
+      (direction): Action => ({
+        type: "move",
+        direction,
+      }),
+    );
+    const homeward = this.plan.homeward!.steps.map(
+      (direction): Action => ({
+        type: "move",
+        direction,
+      }),
+    );
     this.actions = [
       ...outbound,
       ...Array<Action>(this.plan.units).fill({ type: "grab" }),

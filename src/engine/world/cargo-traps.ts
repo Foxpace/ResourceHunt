@@ -41,9 +41,10 @@ export function triggerCargoTrap(turn: WorldTurn, bot: BotState): void {
 
     return belongsToRival && isArmed && sharesBotTile;
   });
-  const protectedBot = isGuarded(turn, bot.id);
-  const hasCargo = !bot.disabled && bot.inventory.length > 0;
-  if (!trap || protectedBot || !hasCargo) return;
+  const hasArmedRivalTrap = trap !== undefined;
+  const botIsGuarding = isGuarded(turn, bot.id);
+  const activeBotHasCargo = !bot.disabled && bot.inventory.length > 0;
+  if (!hasArmedRivalTrap || botIsGuarding || !activeBotHasCargo) return;
 
   turn.state.traps = turn.state.traps.filter((site) => site !== trap);
   interruptBot(turn, bot);

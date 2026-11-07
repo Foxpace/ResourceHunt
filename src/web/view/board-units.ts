@@ -20,14 +20,14 @@ export class BoardUnits {
   ) {}
 
   drawTrail(bot: BotState): void {
-    const previous = this.animation?.previous?.bots.find((candidate) => candidate.id === bot.id);
+    const previousBot = this.animation?.previous?.bots.find((candidate) => candidate.id === bot.id);
     const progress = this.animation?.progress ?? 1;
-    const moved = !!previous && !samePosition(previous.position, bot.position);
-    const fading = progress < 1;
-    if (!moved || !fading) return;
+    const botMoved = !!previousBot && !samePosition(previousBot.position, bot.position);
+    const animationInProgress = progress < 1;
+    if (!botMoved || !animationInProgress) return;
 
     const { context, cellSize } = this.grid;
-    const from = cellCenter(this.grid, previous.position);
+    const from = cellCenter(this.grid, previousBot.position);
     const to = cellCenter(this.grid, this.positionOf(bot));
     const stroke = context.createLinearGradient(from.x, from.y, to.x, to.y);
     stroke.addColorStop(0, `${bot.color}00`);

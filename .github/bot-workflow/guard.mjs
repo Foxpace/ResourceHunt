@@ -35,13 +35,73 @@ const ARTIFACTS = new Set(Object.values(STAGES).map((stage) => stage.artifact));
 const PIVOT_ARTIFACTS = new Set(STAGES.build.needs);
 const READ_ONLY_BOTS = new Set(["bots/nearest.ts"]);
 const WORKFLOW_FILE = /^bots\/([a-z][a-z0-9-]{0,47})\/_workflow\/(.+)$/;
-const APPROVED_STATUS = /^[\W_]*status[\W_]*:[\W_]*approved\b/im;
-const SIGNATURE = /^[\W_]*approved by[\W_]*:[ \t*_]*[^\s<*_]/im;
+const APPROVAL_FIELDS = ["status", "approved by"];
+const MARKDOWN_PREFIX = /^(?:>\s*|(?:[-+*]|\d+[.)]|#{1,6})\s+)*/;
 const EDIT_TOOLS =
   /^(apply_patch|create_file|create|create_directory|replace_string_in_file|multi_replace_string_in_file|insert_edit_into_file|edit_notebook_file|vscode_renameSymbol|str_replace_editor|edit|write)$/i;
 
 export function isApproved(content) {
-  return APPROVED_STATUS.test(content) && SIGNATURE.test(content);
+  const fields = approvalFields(content);
+  const status = fields.get("status") ?? [];
+  const signers = fields.get("approved by") ?? [];
+  const approved = status.length === 1 && status[0].toLowerCase() === "approved";
+  const signed = signers.length === 1 && hasSignature(signers[0]);
+
+  return approved && signed;
+}
+
+function hasSignature(value) {
+  const signer = value.replace(/^\[([^\]]+)\]\([^)]+\)$/, "$1");
+  const placeholder = /^(?:todo|tbd|pending|none|n\/a)\b/i.test(signer);
+
+  return !placeholder && /^@?[\p{L}\p{N}]/u.test(signer);
+}
+
+function fieldText(value) {
+  return value
+    .trim()
+    .replace(/^[*_`]+|[*_`]+$/g, "")
+    .trim();
+}
+
+function parseApprovalField(line) {
+  const text = line.replace(/^\|\s*|\s*\|$/g, "");
+  const separator = text.search(/[:|]/);
+  if (separator < 0) return null;
+  const label = fieldText(text.slice(0, separator)).toLowerCase().replace(/\s+/g, " ");
+  if (!APPROVAL_FIELDS.includes(label)) return null;
+
+  return [label, fieldText(text.slice(separator + 1))];
+}
+
+function approvalFields(content) {
+  const fields = new Map();
+  const lines = content.replace(/<!--[\s\S]*?(?:-->|$)/g, "").split(/\r?\n/);
+  let fence = "";
+  for (const source of lines) {
+    const line = source.trim().replace(MARKDOWN_PREFIX, "");
+    const marker = line.match(/^(`{3,}|~{3,})/)?.[0];
+    if (marker) {
+      fence = updateApprovalFence({ fence, marker, line });
+      continue;
+    }
+    if (fence) continue;
+    const field = parseApprovalField(line);
+    if (!field) continue;
+    const [label, value] = field;
+    fields.set(label, [...(fields.get(label) ?? []), value]);
+  }
+
+  return fields;
+}
+
+/** @param {{ fence: string, marker: string, line: string }} markdown */
+function updateApprovalFence({ fence, marker, line }) {
+  if (!fence) return marker;
+
+  const matchingMarker = marker.startsWith(fence);
+  const markerOnly = line.slice(marker.length).trim() === "";
+  return matchingMarker && markerOnly ? "" : fence;
 }
 
 export function safePath(root, candidate) {
@@ -86,16 +146,24 @@ export function checkInputs(context) {
   }
 }
 
-/** The team owning a bot file: bots/<team>.ts, bots/<team>-<name>.ts, or bots/<team>/... */
+/**
+ * The team owning a bot file: bots/<team>.ts, bots/<team>-<name>.ts, or bots/<team>/...
+ * @param {string} root
+ * @param {string} path
+ */
 export function teamOf(root, path) {
   const name = path.split("/")[1].replace(/\.ts$/, "");
   const teams = readdirSync(resolve(root, "bots"), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .filter((team) => hasWorkflow(root, team));
-  const owners = teams.filter((team) => name === team || name.startsWith(`${team}-`));
+  const owners = teams.filter((team) => {
+    const exactTeamName = name === team;
+    const teamPrefix = name.startsWith(`${team}-`);
+    return exactTeamName || teamPrefix;
+  });
 
-  return owners.sort((a, b) => b.length - a.length)[0] ?? null;
+  return owners.sort((first, second) => second.length - first.length)[0] ?? null;
 }
 
 function hasWorkflow(root, team) {

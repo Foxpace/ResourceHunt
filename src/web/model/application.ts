@@ -18,6 +18,7 @@ export type ApplicationIntent =
   | { type: "generateMatch"; request: CreateGameRequest }
   | { type: "togglePlayback"; getSpeed: () => number }
   | { type: "stepPlayback" }
+  | { type: "stopMatch" }
   | { type: "seekPlayback"; tick: number }
   | { type: "importReplay"; file: ReplayFile }
   | { type: "exportReplay"; saveReplay: (replay: Replay) => void }
@@ -69,17 +70,22 @@ export class ApplicationModel {
   get playbackControls() {
     const playback = this.playback;
     const snapshot = playback.snapshot;
-    const unavailable = this.disposed || playback.isCreating;
+    const unavailable = this.disposed || playback.isCreating || playback.isStopping;
+    const offerReplay = snapshot?.finished || playback.isStopped;
+    const matchStatus = playback.isStopping ? "Stopping match…" : "Match stopped";
+    const showMatchStatus = playback.isStopping || playback.isStopped;
 
     return {
       canPlay: playback.canPlay && !unavailable,
-      playLabel: playback.isPlaying ? "Pause" : snapshot?.finished ? "Replay" : "Run",
+      playLabel: playback.isPlaying ? "Pause" : offerReplay ? "Replay" : "Run",
       canStep: playback.canStep && !unavailable,
+      canStop: playback.canStop && !unavailable,
       canExport: !!snapshot && !unavailable,
       canSeek: playback.length >= 2 && !unavailable,
       maxTick: snapshot?.config.ticks ?? 0,
       tick: snapshot?.tick ?? 0,
       isReplay: playback.isReplay,
+      status: showMatchStatus ? matchStatus : playback.isReplay ? "Replay" : "",
     };
   }
 
@@ -134,6 +140,8 @@ export class ApplicationModel {
         return;
       case "stepPlayback":
         return this.playback.step();
+      case "stopMatch":
+        return this.playback.stop();
       case "seekPlayback":
         return this.playback.seek(intent.tick);
       case "importReplay":

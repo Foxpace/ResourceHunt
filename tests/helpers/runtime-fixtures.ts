@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { TestContext } from "node:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createGame, runToEnd } from "../../src/runtime/matches.ts";
@@ -10,6 +10,7 @@ import { discoverBots, type BotDescriptor } from "../../src/runtime/bots.ts";
 import { normalizeConfig } from "../../src/engine/config.ts";
 import { startServer } from "../../src/server.ts";
 import type { GameConfig, Replay } from "../../src/engine/types.ts";
+import { parseReplay } from "../../src/engine/replay.ts";
 import type {
   BotCatalogResponse,
   CreateGameResponse,
@@ -26,13 +27,46 @@ export const HUNG_BOT_FILES = {
   "hung.ts":
     'export default class { static metadata = {id:"hung",name:"Hung",description:"Test"}; act() { while(true) {} } }',
 };
+export const TERRAIN_EDIT_BOT_FILES = {
+  "terrain-edit.ts": `
+    export default class {
+      static metadata = { id: "terrain-edit", name: "Terrain edit", description: "Test" };
+      act(state) {
+        if (state.map.tiles[0][0] === "edited") throw new Error("Saw a previous turn's map edit");
+        state.map.tiles[0][0] = "edited";
+        return { type: "skip" };
+      }
+    }
+  `,
+};
+export const WEATHER_TERRAIN_BOT_FILES = {
+  "weather-terrain.ts": `
+    export default class {
+      static metadata = { id: "weather-terrain", name: "Weather terrain", description: "Test" };
+      act(state) {
+        this.hazard ??= state.world.hazards[0];
+        const { center: { x, y }, startsAt, endsAt } = this.hazard;
+        const actual = state.map.tiles[y][x];
+        this.initial ??= actual;
+        const active = state.tick >= startsAt && state.tick < endsAt;
+        if (actual !== (active ? "lava" : this.initial)) throw new Error("Stale terrain");
+        return { type: "skip" };
+      }
+    }
+  `,
+};
+
+export async function createRuntimeTestDirectory(context: TestContext): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), "resource-hunt-test-"));
+  context.after(() => rm(directory, { recursive: true, force: true }));
+  return directory;
+}
 
 export async function createBotDirectory(
   context: TestContext,
   files: Record<string, string>,
 ): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), "resource-hunt-test-"));
-  context.after(() => rm(directory, { recursive: true, force: true }));
+  const directory = await createRuntimeTestDirectory(context);
   for (const [file, code] of Object.entries(files)) await writeFile(join(directory, file), code);
 
   return directory;
@@ -51,6 +85,14 @@ export async function runWorkerMatch(bots: BotDescriptor[], config: Partial<Game
 
 export function runCli(argumentsList: string[]) {
   return promisify(execFile)(process.execPath, ["--import", "tsx", "src/cli.ts", ...argumentsList]);
+}
+
+export async function createCliReplay(context: TestContext, args: string[]): Promise<Replay> {
+  const directory = await createRuntimeTestDirectory(context);
+  const path = join(directory, "replay.json");
+  await runCli(["play", "--bots", "nearest", "--json", "--replay", path, ...args]);
+
+  return parseReplay(JSON.parse(await readFile(path, "utf8")));
 }
 
 export async function createHttpServer(context: TestContext) {

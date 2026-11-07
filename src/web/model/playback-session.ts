@@ -7,7 +7,7 @@ type LivePlaybackSource = {
   readonly sessionId: string;
   readonly initialSnapshot: Snapshot;
 };
-type RecordedPlaybackSource = { readonly kind: "recorded"; readonly replay: Replay };
+type RecordedPlaybackSource = { readonly kind: "recorded" | "stopped"; readonly replay: Replay };
 export type SelectedPlaybackSource = LivePlaybackSource | RecordedPlaybackSource;
 export type PlaybackSource = { readonly kind: "empty" } | SelectedPlaybackSource;
 
@@ -46,6 +46,10 @@ export class PlaybackSession {
     return this.pendingSourceSelection?.sourceKind === "live";
   }
 
+  get isStopping(): boolean {
+    return this.pendingSourceSelection?.sourceKind === "stopped";
+  }
+
   get isBusy(): boolean {
     const sessionOpen = !this.isDisposed;
     const selectingSource = this.isSelecting;
@@ -64,6 +68,16 @@ export class PlaybackSession {
 
   selectRecordedReplay(replay: Replay): Promise<void> {
     return this.requestSourceSelection("recorded", async () => ({ kind: "recorded", replay }));
+  }
+
+  stopLiveSession(): Promise<void> {
+    const source = this.activeSource;
+    if (source.kind !== "live") return Promise.resolve();
+
+    return this.requestSourceSelection("stopped", async () => ({
+      kind: "stopped",
+      replay: await this.gameClient.replay(source.sessionId),
+    }));
   }
 
   advanceLiveSession(): Promise<Snapshot | undefined> {
@@ -87,8 +101,8 @@ export class PlaybackSession {
     await this.pendingLiveTick;
     this.assertExportSourceIsCurrent(source);
 
-    if (source.kind === "recorded") return source.replay;
     if (source.kind === "empty") throw new Error("Create a match before exporting a replay");
+    if (source.kind !== "live") return source.replay;
 
     const replay = await this.gameClient.replay(source.sessionId);
     this.assertExportSourceIsCurrent(source);

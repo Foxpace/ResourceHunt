@@ -1,15 +1,26 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { ROOT, STAGES, decide, isApproved } from "./guard.mjs";
-import { parseRequest } from "./run.mjs";
+import { parseRequest, run } from "./run.mjs";
 
 const DRAFT = "# Intention: comet\n\nStatus: draft\nApproved by:\n\n## Our idea\n";
 const APPROVED = "# Artifact: comet\n\nStatus: approved\nApproved by: Jana (intent owner)\n";
 const UPSTREAM = { design: 1, plan: 2, build: 3, review: 4 };
 const AGENTS = join(ROOT, ".github/agents");
+const HANDIN_ZIP = "results/comet-handin.zip";
+const PRACTICE_BOT = "bots/comet-thief.ts";
+const OTHER_TEAM_BOT = "bots/comet-fox.ts";
 
 function workspace(approvedCount = 0) {
   const root = mkdtempSync(join(tmpdir(), "bot-workflow-"));
@@ -35,6 +46,34 @@ function agentSources() {
   const files = readdirSync(AGENTS).filter((name) => name.endsWith(".agent.md"));
 
   return files.map((name) => ({ name, source: readFileSync(join(AGENTS, name), "utf8") }));
+}
+
+function handInWorkspace(t, typecheckStatus = 0) {
+  const root = workspace(5);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const files = {
+    "bots/comet.ts": "// Final bot\n",
+    [PRACTICE_BOT]: "// Practice bot\n",
+    [OTHER_TEAM_BOT]: "// Another team's bot\n",
+    "bots/comet-fox/_workflow/INTENTION.md": APPROVED,
+    "src/cli.ts":
+      'console.log("comet Comet\\ncomet-thief Thief");\n' +
+      'console.error("Bot skipped: comet-fox.ts: fixture error");\n',
+    "node_modules/tsx/index.js": "",
+    "node_modules/typescript/bin/tsc": `process.exitCode = ${typecheckStatus};`,
+    "scripts/check-structure.mjs": "",
+  };
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(root, dirname(path)), { recursive: true });
+    writeFileSync(join(root, path), content);
+  }
+
+  return root;
+}
+
+function assertPracticeAndOtherTeamIntact(root) {
+  assert.equal(readFileSync(join(root, PRACTICE_BOT), "utf8"), "// Practice bot\n");
+  assert.equal(readFileSync(join(root, OTHER_TEAM_BOT), "utf8"), "// Another team's bot\n");
 }
 
 test("intention writes its own draft artifact without prerequisites", () => {
@@ -95,8 +134,8 @@ test("design cannot start without an intention", () => {
   assertDenied(result, /INTENTION\.md is missing/);
 });
 
-test("each stage may start once its upstream artifacts are approved", () => {
-  for (const [stage, approvedCount] of Object.entries(UPSTREAM)) {
+for (const [stage, approvedCount] of Object.entries(UPSTREAM)) {
+  test(`${stage} may start once its upstream artifacts are approved`, () => {
     // Given
     const root = workspace(approvedCount);
     const path = `bots/comet/_workflow/${STAGES[stage].artifact}`;
@@ -106,8 +145,8 @@ test("each stage may start once its upstream artifacts are approved", () => {
 
     // Then
     assert.deepEqual(result, {}, stage);
-  }
-});
+  });
+}
 
 test("an agent cannot write another stage's artifact", () => {
   // Given
@@ -277,6 +316,51 @@ test("practice tournaments and packing run only at hand-in", () => {
   for (const attempt of attempts) assert.throws(attempt, /Available in build:/);
 });
 
+test("packing archives only the final bot and its team folder", (t) => {
+  // Given
+  const root = handInWorkspace(t);
+  const context = { ...parseRequest(["review", "comet", "pack"], root), log: [] };
+
+  // When
+  const status = run(context);
+
+  // Then
+  assert.equal(status, 0);
+  const zip = readFileSync(join(root, HANDIN_ZIP));
+  assert.ok(zip.includes("bots/comet.ts"));
+  assert.ok(zip.includes("bots/comet/_workflow/REVIEW.md"));
+  assert.ok(!zip.includes(PRACTICE_BOT));
+  assert.ok(!zip.includes(OTHER_TEAM_BOT));
+  assertPracticeAndOtherTeamIntact(root);
+});
+
+test("failed pack checks leave both teams' bot files intact", (t) => {
+  // Given
+  const root = handInWorkspace(t, 1);
+  const context = { ...parseRequest(["review", "comet", "pack"], root), log: [] };
+
+  // When
+  const status = run(context);
+
+  // Then
+  assert.equal(status, 1);
+  assert.ok(!existsSync(join(root, HANDIN_ZIP)));
+  assertPracticeAndOtherTeamIntact(root);
+});
+
+test("discovery checks distinguish practice bots from another team with the same prefix", (t) => {
+  // Given
+  const root = handInWorkspace(t);
+  const context = { ...parseRequest(["review", "comet", "check"], root), log: [] };
+
+  // When
+  const status = run(context);
+
+  // Then
+  assert.equal(status, 0);
+  assert.match(context.log.join("\n"), /local bots: comet-thief\)/);
+});
+
 test("the runner benches against chosen opponents on one biome", () => {
   // Given
   const root = workspace(3);
@@ -288,6 +372,37 @@ test("the runner benches against chosen opponents on one biome", () => {
   // Then
   assert.deepEqual(request.opponents, ["comet-thief", "nearest"]);
   assert.equal(request.biome, "forest");
+});
+
+test("the runner skips formatting when Prettier is absent", () => {
+  // Given
+  const root = workspace(3);
+  const context = { ...parseRequest(["build", "comet", "format"], root), log: [] };
+
+  // When
+  const exitCode = run(context);
+
+  // Then
+  assert.equal(exitCode, 0);
+  assert.match(context.log.join("\n"), /SKIP .*Prettier is unavailable/);
+});
+
+test("labels keep separate evidence files for repeated runs", () => {
+  // Given
+  const root = workspace(3);
+  const command = ["build", "comet", "format", "--label"];
+
+  // When
+  for (const label of ["before", "after"]) {
+    run({ ...parseRequest([...command, label], root), log: [] });
+  }
+
+  // Then
+  const evidence = readdirSync(join(root, "bots/comet/_workflow/evidence"));
+  assert.deepEqual(evidence.sort(), [
+    "build-format.label-after.txt",
+    "build-format.label-before.txt",
+  ]);
 });
 
 test("status and baseline run before any artifact exists", () => {
@@ -316,6 +431,63 @@ test("approval needs both the status and a signature", () => {
 
   // Then
   assert.deepEqual(results, [false, true, false]);
+});
+
+test("an approved Markdown table unlocks the next stage", () => {
+  // Given
+  const root = workspace();
+  const content = "| **Status** | Approved |\n| **Approved by** | Jana |\n";
+  writeFileSync(join(root, "bots/comet/_workflow/INTENTION.md"), content);
+
+  // When
+  const result = decide(create("bots/comet/_workflow/DESIGN.md"), { root, stage: "design" });
+
+  // Then
+  assert.deepEqual(result, {});
+});
+
+test("approval fields may be formatted as list items", () => {
+  // Given
+  const content = "- **Status** : `APPROVED`\n- _Approved by_ : **Jana**";
+
+  // When
+  const approved = isApproved(content);
+
+  // Then
+  assert.equal(approved, true);
+});
+
+test("an approval example in a code block does not unlock a stage", () => {
+  // Given
+  const content = "```markdown\nStatus: approved\nApproved by: Jana\n```\n";
+
+  // When
+  const approved = isApproved(content);
+
+  // Then
+  assert.equal(approved, false);
+});
+
+test("a placeholder is not an approval signature", () => {
+  // Given
+  const content = "Status: approved\nApproved by: TODO (team)\n";
+
+  // When
+  const approved = isApproved(content);
+
+  // Then
+  assert.equal(approved, false);
+});
+
+test("conflicting status fields do not unlock a stage", () => {
+  // Given
+  const content = "Status: draft\n- Status: approved\nApproved by: Jana\n";
+
+  // When
+  const approved = isApproved(content);
+
+  // Then
+  assert.equal(approved, false);
 });
 
 test("every stage agent runs its own guard and hands off to an existing agent", () => {
@@ -362,8 +534,8 @@ test("every agent loads the shared workshop rules", () => {
   assert.deepEqual(missing, []);
 });
 
-test("every agent asks each of the three roles at least twice, and equally often", () => {
-  for (const { name, source } of agentSources()) {
+for (const { name, source } of agentSources()) {
+  test(`${name} asks each role at least twice, and equally often`, () => {
     // Given
     const checklist = source.split("## Every role speaks")[1]?.split("\n## ")[0] ?? "";
 
@@ -375,8 +547,8 @@ test("every agent asks each of the three roles at least twice, and equally often
     // Then
     assert.ok(Math.min(...counts) >= 2, `${name}: ${counts.join()}`);
     assert.equal(Math.max(...counts), Math.min(...counts), `${name}: ${counts.join()}`);
-  }
-});
+  });
+}
 
 test("the workshop timer and the agents agree on names and minutes", () => {
   // Given
@@ -386,10 +558,11 @@ test("the workshop timer and the agents agree on names and minutes", () => {
 
   // When
   const matched = phases.filter(([, minutes, agent]) =>
-    agents.some(
-      (source) =>
-        source.includes(`name: "${agent}"`) && source.includes(`about ${minutes} minutes`),
-    ),
+    agents.some((source) => {
+      const agentNameMatches = source.includes(`name: "${agent}"`);
+      const agentMinutesMatch = source.includes(`about ${minutes} minutes`);
+      return agentNameMatches && agentMinutesMatch;
+    }),
   );
 
   // Then

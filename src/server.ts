@@ -4,13 +4,39 @@ import { createGameApi } from "./http/game-api.ts";
 import { createWebAssets } from "./http/web-assets.ts";
 import { isMainModule } from "./runtime/entrypoint.ts";
 
-async function createWebRequest(request: IncomingMessage): Promise<Request> {
+const LOOPBACK_ADDRESS = "127.0.0.1";
+
+function localRequestOrigin(request: IncomingMessage): string | undefined {
+  const hosts = request.headersDistinct.host;
+  const port = request.socket.localPort;
+  const hasSingleHost = hosts?.length === 1;
+  const hasLocalPort = port !== undefined;
+  if (!hasSingleHost || !hasLocalPort) return;
+
+  const host = hosts[0]?.toLowerCase();
+  const portSuffix = port === 80 ? "" : `:${port}`;
+  for (const hostname of [LOOPBACK_ADDRESS, "localhost"]) {
+    const matchesExplicitPort = host === `${hostname}:${port}`;
+    const matchesDefaultPort = port === 80 && host === hostname;
+    if (matchesExplicitPort || matchesDefaultPort) return `http://${hostname}${portSuffix}`;
+  }
+}
+
+async function createWebRequest(
+  request: IncomingMessage,
+  origin: string,
+  signal: AbortSignal,
+): Promise<Request> {
+  const target = request.url ?? "/";
+  if (!target.startsWith("/")) throw new Error("Invalid request target");
+
   const headers = requestHeaders(request);
-  const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
+  // Keep leading slashes in the path so the target cannot replace the authority.
+  const url = new URL(`${origin}${target}`);
   const method = request.method ?? "GET";
 
   const bodylessRequest = method === "GET" || method === "HEAD";
-  if (bodylessRequest) return new Request(url, { method, headers });
+  if (bodylessRequest) return new Request(url, { method, headers, signal });
 
   const chunks: Buffer[] = [];
   let size = 0;
@@ -23,7 +49,7 @@ async function createWebRequest(request: IncomingMessage): Promise<Request> {
     chunks.push(buffer);
   }
 
-  return new Request(url, { method, headers, body: Buffer.concat(chunks) });
+  return new Request(url, { method, headers, signal, body: Buffer.concat(chunks) });
 }
 
 export async function startServer(port = Number(process.env.PORT ?? 3000), watch = false) {
@@ -55,7 +81,7 @@ export async function startServer(port = Number(process.env.PORT ?? 3000), watch
 
 if (isMainModule(import.meta.url)) {
   const app = await startServer(undefined, process.argv.includes("--watch"));
-  console.log(`Resource hunt → http://127.0.0.1:${app.port}`);
+  console.log(`Resource hunt → http://${LOOPBACK_ADDRESS}:${app.port}`);
   const shutdown = async () => {
     await app.dispose();
     process.exit(0);
@@ -87,14 +113,27 @@ async function handleHttpRequest(
   outgoing: ServerResponse,
   resources: HttpResources,
 ): Promise<void> {
+  const origin = localRequestOrigin(incoming);
+  if (!origin) {
+    outgoing.writeHead(403, { "Content-Type": "application/json" });
+    outgoing.end(JSON.stringify({ error: "Untrusted Host header" }));
+    return;
+  }
+
+  const controller = new AbortController();
+  outgoing.once("close", () => controller.abort());
   try {
-    const request = await createWebRequest(incoming);
+    const request = await createWebRequest(incoming, origin, controller.signal);
     const response = await routeHttpRequest(request, resources);
+    if (controller.signal.aborted) return;
+
     outgoing.writeHead(response.status, Object.fromEntries(response.headers));
     outgoing.end(
       incoming.method === "HEAD" ? undefined : Buffer.from(await response.arrayBuffer()),
     );
   } catch (error) {
+    if (controller.signal.aborted) return;
+
     outgoing.writeHead(400, { "Content-Type": "application/json" });
     outgoing.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
   }
@@ -121,7 +160,7 @@ async function listenServer(server: Server, port: number, resources: HttpResourc
   const { api, assets } = resources;
 
   try {
-    server.listen(port, "127.0.0.1");
+    server.listen(port, LOOPBACK_ADDRESS);
     await once(server, "listening");
   } catch (error) {
     api.dispose();

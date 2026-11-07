@@ -69,7 +69,10 @@ export class PlaybackTimeline {
       const needsMoreEvents = recentEvents.length < maximumEvents;
       if (!needsMoreEvents) break;
 
-      const frameEvents = this.recordedSnapshots[frameIndex]!.events.slice().reverse();
+      const snapshot = this.recordedSnapshots[frameIndex];
+      if (!snapshot) break;
+
+      const frameEvents = snapshot.events.slice().reverse();
       recentEvents.push(...frameEvents.slice(0, maximumEvents - recentEvents.length));
     }
 

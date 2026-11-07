@@ -7,7 +7,14 @@ import {
 export type Position = { x: number; y: number };
 export type Direction = "N" | "W" | "E" | "S";
 export type Biome =
-  "riverlands" | "valley" | "desert" | "moon" | "volcanic" | "archipelago" | "tundra" | "forest";
+  | "riverlands"
+  | "valley"
+  | "desert"
+  | "moon"
+  | "volcanic"
+  | "archipelago"
+  | "tundra"
+  | "forest";
 export type Terrain =
   | "grass"
   | "forest"

@@ -32,6 +32,11 @@ const invalidSources = [
   },
   { name: "multiline if conditions", source: "if (\ntrue\n) {}", error: /one line/ },
   {
+    name: "an if closing parenthesis on its own line",
+    source: "if (true\n) {}",
+    error: /one line/,
+  },
+  {
     name: "unnamed compound conditions",
     source: "if (count > 0 && count < 3) {}",
     error: /named local booleans/,
@@ -40,6 +45,31 @@ const invalidSources = [
     name: "four boolean terms",
     source: "if (first && second && third && fourth) {}",
     error: /three boolean terms/,
+  },
+  {
+    name: "an imported condition term",
+    source: "import { ready } from './bot'; const hasCargo = true; if (ready && hasCargo) {}",
+    error: /named local booleans/,
+  },
+  {
+    name: "an outer module binding used as a local condition",
+    source: "const ready = true; function act(hasCargo: boolean) { if (ready && hasCargo) {} }",
+    error: /named local booleans/,
+  },
+  {
+    name: "a number used as a boolean condition term",
+    source: "function act(cargoCount: number, ready: boolean) { if (cargoCount && ready) {} }",
+    error: /named local booleans/,
+  },
+  {
+    name: "an untyped value used as a boolean condition term",
+    source: "function act(cargo: any, ready: boolean) { if (cargo && ready) {} }",
+    error: /named local booleans/,
+  },
+  {
+    name: "a single-letter boolean condition term",
+    source: "function act(x: boolean, ready: boolean) { if (x && ready) {} }",
+    error: /named local booleans/,
   },
   {
     name: "unnamed filter conditions",
@@ -98,7 +128,8 @@ for (const scenario of invalidSources) {
 for (const source of [
   "function act(state, target, options) {}",
   "const ready = true, hasCargo = true; if (ready && hasCargo) {}",
-  "items.filter(item => { const active = item.active; const valuable = item.score > 0; return active && valuable; });",
+  "function act(ready: boolean, hasCargo: boolean) { if (ready && !hasCargo) {} }",
+  "items.filter((item: { active: boolean; score: number }) => { const active = item.active; const valuable = item.score > 0; return active && valuable; });",
   "items.every(item => item.active);",
   "items.sort((first, second) => first.score - second.score || first.id.localeCompare(second.id));",
   ["function act() {", ...Array<string>(28).fill(""), "}"].join("\n"),
@@ -115,7 +146,7 @@ for (const source of [
   });
 }
 
-for (const filePath of ["src/invalid.ts", "tests/helpers/invalid.ts"]) {
+for (const filePath of ["src/invalid.ts", "tests/helpers/invalid.ts", ".github/invalid.mjs"]) {
   test(`blank lines count toward the method limit in ${filePath}`, async () => {
     // Given
     const source = ["function act() {", ...Array<string>(29).fill(""), "}"].join("\n");
@@ -127,6 +158,17 @@ for (const filePath of ["src/invalid.ts", "tests/helpers/invalid.ts"]) {
     await assert.rejects(check, /31 lines/);
   });
 }
+
+test("the structure checker reports the HTML line for an inline script", async () => {
+  // Given
+  const source = "<!doctype html>\n<script>\nif (count > 0 && count < 3) {}\n</script>";
+
+  // When
+  const check = runStructureCheck("workshop-timer.html", source);
+
+  // Then
+  await assert.rejects(check, /workshop-timer\.html:3 .*named local booleans/);
+});
 
 for (const scenario of [
   { name: "a twenty-line test", source: createTestSource(20), error: undefined },

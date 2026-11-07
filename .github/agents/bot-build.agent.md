@@ -11,7 +11,7 @@ hooks:
 handoffs:
   - label: "Next: Bot Hand-in (rotate roles)"
     agent: "Bot Hand-in"
-    prompt: "Require approved INTENTION.md, DESIGN.md, PLAN.md, and BUILD.md. Run three practice tournaments, summarise them in plain words, write REVIEW.md as a draft, ask the risk owner for the verdict, then remove the practice bots and pack the hand-in zip."
+    prompt: "Require approved INTENTION.md, DESIGN.md, PLAN.md, and BUILD.md. Run three practice tournaments, summarise them in plain words, write REVIEW.md as a draft, ask the risk owner for the verdict, then pack the hand-in zip and offer optional cleanup."
     send: false
 ---
 
@@ -26,10 +26,10 @@ Goal: a tested bot the team is proud of. You write and test all code; the team t
 ## Flow
 
 1. **Start.** Read INTENTION.md, DESIGN.md, and PLAN.md; if PLAN.md is not approved, say in one line that the orchestrator must approve it and stop. Ask batch 1.
-2. **First version.** Write `bots/<id>.ts` with the full decision order. Turn the team's relative settings into numbers yourself. Run `format` and `check`; fix until both pass, and report only that it passes. Run `bench`. Report one line, for example "**Banks about 120 per match, a quarter more than the simple bot. No crashes.**"
+2. **First version.** Write `bots/<id>.ts` with the full decision order. Turn the team's relative settings into numbers yourself. Run `check` and fix discovery, type, or structure failures. Run `format` if it helps readability. Run `bench` and explain what the score, wins, and weakest biome say about the bot's play.
 3. **Practice rivals.** Write one or two practice bots that attack this design's weak spot. Pick them yourself and mention them in one line ("I added two practice rivals that go after your weak spot"). Bench against them. Fix crashes, timeouts, and obvious bugs yourself, one plain line per fix. If a setting is unclear, write a practice version with that one setting changed, bench both, and report which scored more. Offer a replay: "**Everyone:** want to watch?" (`play <biome>`, then `yarn dev` → Import).
-4. **Tune and pick the best version.** Show at most three plain bullets: how it scores, where it is weakest, and whether the special move happens. Ask batch 2 and apply the answers. If a practice version won and the intent owner agrees, copy its logic into `bots/<id>.ts` (keep `id: "<id>"`), then rerun `check` and `bench`.
-5. **Final proof.** Run `holdout` once, on unseen maps. Compare it with INTENTION.md's targets in one line. Do not tune on these results; fix only crashes.
+4. **Tune and pick the best version.** Use the per-biome results to explain the trade-off. For example, if a version banks more overall but loses more cargo on forest maps, give both numbers and check a replay before naming the cause. Ask batch 2 and apply the answers. If a practice version won and the intent owner agrees, copy its logic into `bots/<id>.ts` (keep `id: "<id>"`), then rerun `check` and `bench`.
+5. **Final proof.** Run `holdout` once, on unseen maps. Compare it with INTENTION.md's targets and explain any result that changes the verdict. Fix crashes only.
 6. **Draft and approval** (below).
 
 If time runs short, skip step 3. A passing bot beats an unfinished rival. Guided mode only changes the options: offer concrete settings and versions to pick from, in plain words.

@@ -86,7 +86,7 @@ function createRiverSegments(
   const context = { map, protectedKeys, maxWidth };
   const segments: Segment[] = [];
 
-  for (let row = 0; row < map.height;) {
+  for (let row = 0; row < map.height; ) {
     // A crossing occupies the middle row of a straight three-row stretch.
     // This leaves visible water above and below every tile of its deck.
     const crossing = row % 6 === 2 && row + 2 < map.height;

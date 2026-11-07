@@ -2,10 +2,23 @@ import { defaultBadgeOptions, selectAwards, type BadgeOptions } from "./awards.t
 import { compareTournamentStandings } from "./results.ts";
 import { BIOMES } from "../engine/biomes.ts";
 import { createMatchStatistics } from "../engine/match-statistics.ts";
-import type { Biome, MatchResult, Standing } from "../engine/types.ts";
-import type { CreateGameRequest, TournamentRound, TournamentRoundRequest } from "../http/types.ts";
+import type { Biome, GameConfig, MatchResult, Standing } from "../engine/types.ts";
 
 export const tournamentBiomes = Object.keys(BIOMES) as Biome[];
+
+export interface TournamentRoundRequest {
+  config: GameConfig;
+  botIds: string[];
+  roundIndex: number;
+}
+
+export interface TournamentRound {
+  result: MatchResult;
+  /** Tick zero onward. Columns follow result.botOrder. */
+  scores: number[][];
+}
+
+type TournamentSetup = Omit<TournamentRoundRequest, "roundIndex">;
 
 export interface TournamentStanding extends Pick<
   Standing,
@@ -24,6 +37,7 @@ export class Tournament {
   readonly rounds: TournamentRound[] = [];
   winners: string[] = [];
   error = "";
+  stopped = false;
   currentBiome?: Biome;
   private runController?: AbortController;
 
@@ -41,7 +55,7 @@ export class Tournament {
   }
 
   async run(
-    request: CreateGameRequest,
+    request: TournamentSetup,
     options: TournamentOptions,
     onChange: () => void,
   ): Promise<void> {
@@ -51,6 +65,7 @@ export class Tournament {
     this.rounds.length = 0;
     this.winners = [];
     this.error = "";
+    this.stopped = false;
     try {
       await this.runRounds(request, options.winTarget, { onChange, signal: controller.signal });
     } catch (error) {
@@ -58,12 +73,13 @@ export class Tournament {
     } finally {
       this.runController = undefined;
       this.currentBiome = undefined;
-      if (!controller.signal.aborted) onChange();
+      const notify = !controller.signal.aborted || this.stopped;
+      if (notify) onChange();
     }
   }
 
   private async runRounds(
-    request: CreateGameRequest,
+    request: TournamentSetup,
     winTarget: number,
     run: { onChange: () => void; signal: AbortSignal },
   ) {
@@ -78,6 +94,7 @@ export class Tournament {
       const biome = tournamentBiomes[(start + roundIndex) % tournamentBiomes.length]!;
       this.currentBiome = biome;
       run.onChange();
+      if (run.signal.aborted) return;
       const suffix = roundIndex < tournamentBiomes.length ? "" : `:${roundIndex + 1}`;
       const seed = request.config.seed.slice(0, 200 - suffix.length) + suffix;
       const round = await this.client.tournamentRound(
@@ -90,7 +107,15 @@ export class Tournament {
     }
   }
 
+  stop(): void {
+    if (!this.runController) return;
+
+    this.stopped = true;
+    this.runController.abort();
+  }
+
   dispose(): void {
+    this.stopped = false;
     this.runController?.abort();
   }
 }

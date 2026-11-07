@@ -1,5 +1,5 @@
 import { register } from "tsx/esm/api";
 
-// Register TypeScript inside the worker, including dynamically discovered bot classes.
+// Register TypeScript for the worker and the bot's imported helpers.
 register();
 await import("./bot-worker.ts");

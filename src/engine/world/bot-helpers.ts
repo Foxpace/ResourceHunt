@@ -1,11 +1,12 @@
 import { getMoveOptions } from "../bot-helpers.ts";
 import { getNearestBank } from "../competition.ts";
+import { canRepairDepot } from "../depot-rules.ts";
 import { manhattanDistance } from "../grid.ts";
 import { DIRECTIONS, inventoryWeight, samePosition, terrainCost } from "../pathfinding.ts";
 import { RESOURCES, type Action, type Observation, type Position } from "../types.ts";
 import { canDeployCargoTrap } from "./cargo-traps.ts";
 import { canSabotageDepot } from "./depot-sabotage.ts";
-import { guardianPosition, type WorldTurn } from "./types.ts";
+import { guardianPosition, type ScavengerDrone, type WorldTurn } from "./types.ts";
 
 function observationTurn(state: Observation): WorldTurn {
   return { state: state.world, context: { ...state, events: [] } };
@@ -32,13 +33,7 @@ export function canRepair(state: Observation, targetId: string): boolean {
   if (!isReady(state)) return false;
 
   const outpost = state.outposts.find((site) => site.id === targetId);
-  if (!outpost) return false;
-
-  const bankingDisabled = (outpost.disabledUntilTick ?? 0) > state.tick;
-  const isOwned = outpost.ownerId === state.self.id;
-  const withinRepairRange = manhattanDistance(state.self.position, outpost) <= 1;
-
-  return isOwned && bankingDisabled && withinRepairRange;
+  return canRepairDepot(outpost, state.self, state.tick);
 }
 
 export function canDeployTrap(state: Observation): boolean {
@@ -116,14 +111,16 @@ export function getDefensiveAction(state: Observation): Action | undefined {
     const notArmed = site.armedAt > state.tick;
     return belongsToRival && sharesTile && notArmed;
   });
-  const carrying = state.self.inventory.length > 0;
-  if (trap && carrying) return { type: "clearTrap", targetId: trap.id };
+  const hasUnarmedTrap = trap !== undefined;
+  const carryingCargo = state.self.inventory.length > 0;
+  if (hasUnarmedTrap && carryingCargo) return { type: "clearTrap", targetId: trap.id };
 
   const droneEscape = avoidScavenger(state);
   if (droneEscape) return droneEscape;
 
   const guardian = state.world.caches.find((cache) => canStrike(state, cache.id));
-  if (guardian && carrying) return escapeThreat(state, guardianPosition(guardian));
+  const guardianInRange = guardian !== undefined;
+  if (guardianInRange && carryingCargo) return escapeThreat(state, guardianPosition(guardian));
 }
 
 function avoidScavenger(state: Observation): Action | undefined {
@@ -133,7 +130,7 @@ function avoidScavenger(state: Observation): Action | undefined {
   if (protectedAtBase || guarding) return;
 
   const threats = state.world.drones.filter((drone) => {
-    const ready = drone.health > 0 && (drone.nextAttackTick ?? 0) <= state.tick;
+    const ready = drone.health > 0 && (drone.nextAttackTick ?? 0) <= state.tick + 1;
     const distance = manhattanDistance(drone.position, position);
     const withinReach = distance === 0 || (distance === 1 && drone.nextMoveTick <= state.tick + 1);
     return ready && withinReach;
@@ -154,7 +151,7 @@ function avoidScavenger(state: Observation): Action | undefined {
   return escape ? { type: "move", direction: escape.direction } : { type: "guard" };
 }
 
-/** Guard before an intended step onto a drone that can attack on arrival. */
+/** Guard before a step that leaves the bot exposed to a drone before its next turn. */
 export function protectDroneCrossing(state: Observation, action: Action): Action {
   const isMovement = action.type === "move" || action.type === "home";
   const guarded = isGuarding(state);
@@ -162,8 +159,8 @@ export function protectDroneCrossing(state: Observation, action: Action): Action
 
   const drones = state.world.drones.filter((drone) => {
     const inRange = manhattanDistance(drone.position, state.self.position) <= 2;
-    const canAttack = drone.health > 0 && (drone.nextAttackTick ?? 0) <= state.tick + 1;
-    return inRange && canAttack;
+    const alive = drone.health > 0;
+    return inRange && alive;
   });
   if (!drones.length) return action;
 
@@ -176,14 +173,20 @@ export function protectDroneCrossing(state: Observation, action: Action): Action
     (bot) => manhattanDistance(bot.base, destination.destination) <= 3,
   );
   if (protectedAtBase) return action;
-  const danger = drones.some((drone) => {
-    const distance = manhattanDistance(drone.position, destination.destination);
-    const sharesTile = distance === 0;
-    const approachesBeforeNextAction =
-      distance === 1 && drone.nextMoveTick < state.tick + destination.cost;
-    return sharesTile || approachesBeforeNextAction;
-  });
+  const nextActionTick = state.tick + destination.cost;
+  const danger = drones.some((drone) =>
+    canDroneReach(drone, destination.destination, nextActionTick),
+  );
   return danger ? { type: "guard" } : action;
+}
+
+function canDroneReach(drone: ScavengerDrone, destination: Position, tick: number): boolean {
+  if ((drone.nextAttackTick ?? 0) > tick) return false;
+
+  const distance = manhattanDistance(drone.position, destination);
+  const sharesTile = distance === 0;
+  const canApproach = distance === 1 && drone.nextMoveTick <= tick;
+  return sharesTile || canApproach;
 }
 
 function isGuarding(state: Observation): boolean {
@@ -215,13 +218,14 @@ function escapeThreat(state: Observation, enemy?: Position): Action {
   return options[0] ? { type: "move", direction: options[0].direction } : { type: "guard" };
 }
 
-/** Block a ready guardian before a nonlethal strike. A finishing blow needs no guard. */
+/** Guard if the guardian can repel the bot before its next turn after a nonlethal strike. */
 export function getGuardianFightAction(state: Observation, targetId: string): Action | undefined {
   const cache = state.world.caches.find((site) => site.id === targetId);
-  const inRange = canStrike(state, targetId);
-  if (!cache || !inRange) return;
+  const hasTargetCache = cache !== undefined;
+  const canStrikeTarget = canStrike(state, targetId);
+  if (!hasTargetCache || !canStrikeTarget) return;
 
-  const canRetaliate = cache.guardianHealth > 1 && cache.nextAttackTick <= state.tick;
+  const canRetaliate = cache.guardianHealth > 1 && cache.nextAttackTick <= state.tick + 1;
   const guarding = isGuarding(state);
   return canRetaliate && !guarding ? { type: "guard" } : { type: "strike", targetId };
 }
@@ -239,17 +243,18 @@ export function getCompetitiveAction(state: Observation): Action | undefined {
   if (cache) return { type: "lootCache", targetId: cache.id };
 
   const guardian = state.world.caches.find((site) => canStrike(state, site.id));
-  const emptyBag = state.self.inventory.length === 0;
-  if (guardian && emptyBag) return getGuardianFightAction(state, guardian.id);
+  const guardianInRange = guardian !== undefined;
+  const inventoryEmpty = state.self.inventory.length === 0;
+  if (guardianInRange && inventoryEmpty) return getGuardianFightAction(state, guardian.id);
 
   return getTrapAction(state);
 }
 
 /** Trap a loaded rival's likely path to a bank, or the tile it is already using. */
 export function getTrapAction(state: Observation): Action | undefined {
-  const timeToArm = state.remainingTicks >= 3;
-  const canPlace = canDeployTrap(state);
-  if (!canPlace || !timeToArm) return;
+  const hasTimeToArmTrap = state.remainingTicks >= 3;
+  const canPlaceTrap = canDeployTrap(state);
+  if (!canPlaceTrap || !hasTimeToArmTrap) return;
 
   const position = state.self.position;
   const exposedRival = state.bots.some((rival) => {
@@ -257,8 +262,8 @@ export function getTrapAction(state: Observation): Action | undefined {
     const isActive = !rival.disabled;
     const carriesCargo = rival.inventory.length > 0;
     const loadedOpponent = isOpponent && isActive && carriesCargo;
-    const nearby = manhattanDistance(rival.position, position) <= 4;
-    if (!loadedOpponent || !nearby) return false;
+    const rivalWithinFourTiles = manhattanDistance(rival.position, position) <= 4;
+    if (!loadedOpponent || !rivalWithinFourTiles) return false;
     return crossesTrapTile(state, rival);
   });
   if (exposedRival) return { type: "deployTrap" };

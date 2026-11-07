@@ -363,16 +363,18 @@ class ReplayFrameValidator {
     const downtimeValid = isNonnegativeInteger(disabledUntil);
     const integerProgress = isNonnegativeInteger(progress);
     const progressValid = integerProgress ? progress <= 1 : false;
-    const numbersValid = downtimeValid && progressValid;
+    const downtimeAndProgressValid = downtimeValid && progressValid;
     const immunity =
       post.captureProtectedUntilTick === undefined ? 0 : post.captureProtectedUntilTick;
-    const referenceValid = this.isBotReference(saboteur) && isNonnegativeInteger(immunity);
-    const consistent = saboteur !== null || progress === 0;
+    const saboteurAndImmunityValid =
+      this.isBotReference(saboteur) && isNonnegativeInteger(immunity);
+    const progressMatchesSaboteur = saboteur !== null || progress === 0;
     const sabotageProtectionValid = isNonnegativeInteger(
       post.sabotageProtectedUntilTick === undefined ? 0 : post.sabotageProtectedUntilTick,
     );
     if (!sabotageProtectionValid) rejectInvalidReplay();
-    if (!numbersValid || !referenceValid || !consistent) rejectInvalidReplay();
+    if (!downtimeAndProgressValid || !saboteurAndImmunityValid || !progressMatchesSaboteur)
+      rejectInvalidReplay();
   }
 }
 

@@ -63,25 +63,32 @@ export class MapMotion {
 }
 
 export function animatedBotPosition(bot: BotState, animation?: MapAnimation): Position {
-  const previous = animation?.previous?.bots.find((candidate) => candidate.id === bot.id);
-  if (!previous || !animation) return bot.position;
+  if (!animation) return bot.position;
+  const previousBot = animation.previous?.bots.find((candidate) => candidate.id === bot.id);
+  if (!previousBot) return bot.position;
 
-  return interpolatePosition(previous.position, bot.position, animation.progress);
+  return interpolatePosition(previousBot.position, bot.position, animation.progress);
 }
 
 export function animatedDronePosition(drone: ScavengerDrone, animation?: MapAnimation): Position {
-  const previous = animation?.previous?.world.drones.find((candidate) => candidate.id === drone.id);
-  if (!previous || !animation) return drone.position;
+  if (!animation) return drone.position;
+  const previousDrone = animation.previous?.world.drones.find(
+    (candidate) => candidate.id === drone.id,
+  );
+  if (!previousDrone) return drone.position;
 
-  return interpolatePosition(previous.position, drone.position, animation.progress);
+  return interpolatePosition(previousDrone.position, drone.position, animation.progress);
 }
 
 export function animatedGuardianPosition(cache: GuardianCache, animation?: MapAnimation): Position {
   const position = guardianPosition(cache);
-  const previous = animation?.previous?.world.caches.find((candidate) => candidate.id === cache.id);
-  if (!previous || !animation) return position;
+  if (!animation) return position;
+  const previousCache = animation.previous?.world.caches.find(
+    (candidate) => candidate.id === cache.id,
+  );
+  if (!previousCache) return position;
 
-  return interpolatePosition(guardianPosition(previous), position, animation.progress);
+  return interpolatePosition(guardianPosition(previousCache), position, animation.progress);
 }
 
 function interpolatePosition(previous: Position, current: Position, progress: number): Position {

@@ -1,4 +1,4 @@
-import { isOutpostProtected } from "../competition.ts";
+import { canRepairDepot, isDepotOffline, isOutpostProtected } from "../depot-rules.ts";
 import { manhattanDistance } from "../grid.ts";
 import type { BotState, Outpost } from "../types.ts";
 import { countWorldAction, isGuarded, recordWorldAction } from "./shared.ts";
@@ -40,7 +40,7 @@ export function canSabotageDepot(turn: WorldTurn, bot: BotState, outpost: Outpos
   const belongsToRival = outpost.ownerId !== bot.id;
   const enemyOwned = hasOwner && belongsToRival;
   const withinSabotageRange = manhattanDistance(bot.position, outpost) <= 1;
-  const bankingOperational = (outpost.disabledUntilTick ?? 0) <= turn.context.tick;
+  const bankingOperational = !isDepotOffline(outpost, turn.context.tick);
   const protectionExpired = (outpost.sabotageProtectedUntilTick ?? 0) <= turn.context.tick;
   const depotAccessible = withinSabotageRange && bankingOperational && protectionExpired;
 
@@ -52,10 +52,7 @@ export function repairDepot(turn: WorldTurn, command: WorldCommand): void {
   if (!("targetId" in action)) return;
 
   const outpost = turn.context.outposts.find((site) => site.id === action.targetId);
-  const owned = !!outpost && outpost.ownerId === bot.id;
-  const nearby = !!outpost && manhattanDistance(bot.position, outpost) <= 1;
-  const disabled = (outpost?.disabledUntilTick ?? 0) > turn.context.tick;
-  if (!owned || !nearby || !disabled) {
+  if (!canRepairDepot(outpost, bot, turn.context.tick)) {
     bot.lastAction = "No damaged owned depot within repair range";
     return;
   }

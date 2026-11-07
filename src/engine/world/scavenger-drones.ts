@@ -129,16 +129,17 @@ function chooseDroneTarget(
     return exposed && withinDetectionRange;
   });
 
-  const hasCargoSpace = drone.inventory.length < DRONE_CARGO_CAPACITY;
-  const loadedTargets = targets.filter((bot) => bot.inventory.length > 0);
-  const loadedTargetsAvailable = loadedTargets.length > 0;
-  const canPursueCargo = hasCargoSpace && loadedTargetsAvailable;
-  const preferredTargets = canPursueCargo ? loadedTargets : targets;
-
   return nearestPosition(
     drone.position,
-    preferredTargets.map((bot) => bot.position),
+    preferLoadedTargets(drone, targets).map((bot) => bot.position),
   );
+}
+
+function preferLoadedTargets(drone: ScavengerDrone, targets: BotState[]): BotState[] {
+  if (drone.inventory.length >= DRONE_CARGO_CAPACITY) return targets;
+
+  const loadedTargets = targets.filter((bot) => bot.inventory.length > 0);
+  return loadedTargets.length ? loadedTargets : targets;
 }
 
 function attackExposedBot(turn: WorldTurn, drone: ScavengerDrone): boolean {
@@ -146,12 +147,13 @@ function attackExposedBot(turn: WorldTurn, drone: ScavengerDrone): boolean {
   const attackCoolingDown = tick < (drone.nextAttackTick ?? 0);
   if (attackCoolingDown) return false;
 
-  const victim = turn.context.bots.find((bot) => {
+  const targets = turn.context.bots.filter((bot) => {
     const exposed = isExposedBot(turn, bot);
     const sharesDroneTile = samePosition(bot.position, drone.position);
 
     return exposed && sharesDroneTile;
   });
+  const victim = preferLoadedTargets(drone, targets)[0];
   if (!victim) return false;
 
   drone.nextAttackTick = tick + 6;

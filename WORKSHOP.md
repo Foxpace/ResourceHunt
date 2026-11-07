@@ -4,10 +4,11 @@ After a 5-minute intro, your team has 50 minutes to build one bot that banks the
 
 ## Before you start
 
-You need Node.js 22.18+, Yarn 1.22, and VS Code with GitHub Copilot Chat in agent mode.
+You need Node.js 23.11.1+, Yarn 4.5.3, and VS Code with GitHub Copilot Chat in agent mode.
 
 ```sh
 git clone <repo-url> && cd ResourceHunt
+corepack enable yarn
 yarn install
 yarn dev          # http://127.0.0.1:3000: watch the simple `nearest` bot play
 ```
@@ -52,7 +53,7 @@ Open Copilot Chat and find the five **Bot …** agents in the agent picker. Open
 
 The timer covers the five stages (50 minutes). The tournament runs afterwards, organised by the facilitators.
 
-Artifacts live in `bots/<your-bot-id>/_workflow/`. Your final bot is one file, `bots/<your-bot-id>.ts`. While building, the agent also writes a few practice bots, `bots/<your-bot-id>-<name>.ts`, to test yours against. You don't need to manage them; Bot Hand-in deletes them before packing.
+Artifacts live in `bots/<your-bot-id>/_workflow/`. Your final bot is one file, `bots/<your-bot-id>.ts`. While building, the agent also writes a few practice bots, `bots/<your-bot-id>-<name>.ts`, to test yours against. Practice bots stay on disk and outside the hand-in ZIP.
 
 ## What you do and what the agent does
 
@@ -62,7 +63,7 @@ Artifacts live in `bots/<your-bot-id>/_workflow/`. Your final bot is one file, `
 | Design    | Write the bot's decision order. Answer the tough situations.                    | Throws concrete game situations at your plan and tells you what won't work.                            |
 | Plan      | Cut and reorder the agent's plan. Pick the risk to test first.                  | Proposes a short plan in plain words: what gets built, how it is tested, what could go wrong.          |
 | Build     | Choose how the bot plays. Judge the results. Tune it, or pivot.                 | Writes and tests your bot against the simple bot, practice rivals, and unseen maps; fixes what breaks. |
-| Hand-in   | Name what worries you. Give the verdict.                                        | Runs three practice tournaments, checks the bot against your targets, removes practice bots, zips it.  |
+| Hand-in   | Name what worries you. Give the verdict.                                        | Runs three practice tournaments, checks the bot against your targets, and packs the ZIP.               |
 
 Every agent works two ways. **Bring your own answer** and it follows your lead, or say **"guide us"** and it offers concrete options for each role. Running out of time? Say **"wrap up"** and the agent drafts the artifact immediately, marks open points `TODO (team)`, and asks for approval. Each agent asks every role two questions per stage, batched so you answer them together. The agent handles the code and the game's details; you decide what the bot should do. **Strategy not working during Build?** Say "pivot": the agent asks each role one question and updates the intention, design, and plan in one go. Weird ideas are welcome: the tournament shows banked score, but the results also award badges for theft, traps, guardian kills, and more.
 
@@ -73,20 +74,23 @@ Agents run these for you. You can run them yourself too:
 ```sh
 node .github/bot-workflow/run.mjs <stage> <bot-id> status                    # which artifacts are draft or approved
 node .github/bot-workflow/run.mjs intention <bot-id> baseline                 # typical scores of the simple `nearest` bot
-node .github/bot-workflow/run.mjs build <bot-id> check                        # discovered, types, rules, formatting
+node .github/bot-workflow/run.mjs build <bot-id> check                        # discovery, types, structure; formatting warnings
 node .github/bot-workflow/run.mjs build <bot-id> bench                        # your bot vs 3 copies of `nearest` on 8 biomes
+node .github/bot-workflow/run.mjs build <bot-id> bench forest --label before  # keep this run when comparing a later version
 node .github/bot-workflow/run.mjs build <bot-id> bench --vs <bot-id>-thief,nearest,nearest   # vs a practice rival
 node .github/bot-workflow/run.mjs build <bot-id> play forest                  # one match → replay in results/
 node .github/bot-workflow/run.mjs build <bot-id> holdout                      # same comparison on unseen maps, once
 node .github/bot-workflow/run.mjs review <bot-id> tournament                  # three practice tournaments
-node .github/bot-workflow/run.mjs review <bot-id> pack                        # after approval: clean up and zip
+node .github/bot-workflow/run.mjs review <bot-id> pack                        # after approval: check and zip
 ```
 
 Watch a replay with `yarn dev`, then **Import**, then choose the file in `results/`.
 
+Benchmark and tournament evidence goes under `bots/<bot-id>/_workflow/evidence/`. Use the text report for the workshop discussion and the companion JSON for exact points by tick, round wins, seeds, and game counters.
+
 ## Submitting your bot
 
-Your bot is ready when the risk owner has approved `REVIEW.md`. Bot Hand-in then runs `pack`: it deletes the practice bots, reruns `check`, and writes `results/<bot-id>-handin.zip` with `bots/<bot-id>.ts` and `bots/<bot-id>/`. Send that zip to the facilitator, or use a branch or pull request, as announced.
+Your bot is ready when the risk owner has approved `REVIEW.md`. Bot Hand-in then runs `pack` to rerun the checks and write `results/<bot-id>-handin.zip` with `bots/<bot-id>.ts` and `bots/<bot-id>/`. Send that ZIP to the facilitator, or use a branch or pull request, as announced. After the ZIP is ready, the agent can ask whether to remove the team's practice bots. You can leave them on disk and finish hand-in.
 
 ---
 

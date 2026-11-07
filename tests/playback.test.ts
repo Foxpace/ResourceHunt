@@ -1,6 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assertPlayback, createLivePlayback } from "./helpers/playback-fixtures.ts";
+import {
+  assertPlayback,
+  createLivePlayback,
+  createLocalPlayback,
+} from "./helpers/playback-fixtures.ts";
+
+test("empty playback has no recent events", (context) => {
+  // Given
+  const { playback } = createLocalPlayback(context);
+
+  // When
+  const events = playback.recentEvents();
+
+  // Then
+  assert.deepEqual(events, []);
+});
 
 test("concurrent step requests share one live tick", async (context) => {
   // Given

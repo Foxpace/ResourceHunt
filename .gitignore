@@ -1,4 +1,5 @@
 node_modules/
+/.yarn/install-state.gz
 results/
 *.log
 .DS_Store

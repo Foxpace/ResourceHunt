@@ -22,6 +22,9 @@
         <rect x="6.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" />
         <rect x="13.5" y="5" width="4" height="14" rx="1.2" fill="currentColor" />
       </symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24">
+        <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+      </symbol>
       <symbol id="i-step" viewBox="0 0 24 24">
         <path
           d="M6 6.4v11.2a.9.9 0 0 0 1.4.75l8.3-5.6a.9.9 0 0 0 0-1.5L7.4 5.65A.9.9 0 0 0 6 6.4Z"
@@ -458,6 +461,16 @@
                 >
                   <svg aria-hidden="true"><use href="#i-step" /></svg>
                 </button>
+                <button
+                  class="icon-button"
+                  id="stop-match"
+                  type="button"
+                  disabled
+                  aria-label="Stop match"
+                  title="Stop match"
+                >
+                  <svg aria-hidden="true"><use href="#i-stop" /></svg>
+                </button>
                 <fieldset class="speed" id="speed">
                   <legend class="visually-hidden">Playback speed</legend>
                   <label title="2 ticks per second"
@@ -476,7 +489,7 @@
               </div>
               <div id="world-status" class="world-status" aria-live="polite"></div>
               <div class="tick-readout">
-                <span id="playback-mode" class="replay-badge" hidden>Replay</span>
+                <span id="playback-mode" class="replay-badge" role="status" hidden>Replay</span>
                 <span class="tick-caption">Tick</span>
                 <span id="tick-label" class="tick-label" aria-label="Tick">0 / 300</span>
               </div>
@@ -582,6 +595,9 @@
               <h2 id="tournament-heading">Tournament</h2>
               <p class="view-status" id="tournament-status" role="status"></p>
             </div>
+            <button class="secondary" id="stop-tournament" type="button" hidden>
+              Stop tournament
+            </button>
           </header>
           <div id="tournament-empty" class="empty-state">
             <svg aria-hidden="true"><use href="#i-trophy" /></svg>
@@ -672,18 +688,19 @@
         </dd>
         <dt><i class="key key-bot"></i>Guard</dt>
         <dd>
-          Protect cargo from theft, traps, and enemy hits through the following tick. Clear adjacent
-          traps or strike adjacent enemies to fight back.
+          Protect against theft, traps, and hazards through the following tick, and against the next
+          two scavenger and guardian phases.
         </dd>
         <dt><i class="key key-cache"></i>Cache</dt>
         <dd>
-          Guard before striking a ready guardian. A nonlethal hit can draw retaliation. Defeat the
-          guardian in three hits, then loot one fitting item per turn on the cache.
+          Guard before approaching a guardian that is ready to attack. Guardians and scavengers act
+          before bots each tick. Defeat the guardian in three hits, then loot one item per turn.
         </dd>
         <dt><i class="key key-drone"></i>Scavengers</dt>
         <dd>
           Drones chase loaded bots nearby, stun them, and steal cargo, then give up and retry later.
-          Keep moving, guard when one is close, or strike it twice to disable it.
+          Check the drone’s route before moving, guard before an exposed step, or strike twice to
+          disable it.
         </dd>
         <dt><i class="key key-hazard"></i>Hazards</dt>
         <dd>

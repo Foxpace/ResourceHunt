@@ -1,8 +1,13 @@
 import ts from "typescript";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { relative } from "node:path";
 
-const roots = ["src", "bots", "scripts", "tests"];
-const violations = roots.flatMap(checkDirectory);
+const roots = ["src", "bots", "scripts", "tests", ".github"];
+const codeExtension = /\.(?:[cm]?[jt]s|[jt]sx)$/;
+const paths = roots.filter(existsSync).flatMap(listSourcePaths);
+if (existsSync("workshop-timer.html")) paths.push("workshop-timer.html");
+
+const violations = checkSources(paths);
 for (const violation of violations) console.error(violation);
 if (violations.length) process.exitCode = 1;
 else
@@ -10,21 +15,57 @@ else
     "Structure checks passed: parameters, function size, nesting, and readable conditions and collection predicates.",
   );
 
-function checkDirectory(directory) {
-  return readdirSync(directory, { recursive: true })
-    .filter((file) => /\.(ts|mjs)$/.test(file))
-    .flatMap((file) => checkFile(`${directory}/${file}`));
+function listSourcePaths(directory) {
+  return readdirSync(directory, { recursive: true, withFileTypes: true })
+    .filter((entry) => {
+      const supported = codeExtension.test(entry.name) || entry.name.endsWith(".html");
+      const regularFile = entry.isFile();
+      return regularFile && supported;
+    })
+    .map((entry) => `${entry.parentPath}/${entry.name}`);
 }
 
-function checkFile(path) {
-  const source = ts.createSourceFile(
-    path,
-    readFileSync(path, "utf8"),
-    ts.ScriptTarget.Latest,
-    true,
-  );
+function checkSources(paths) {
+  const scripts = new Map(paths.filter((path) => path.endsWith(".html")).flatMap(inlineScripts));
+  const fileNames = [...paths.filter((path) => codeExtension.test(path)), ...scripts.keys()];
+  const options = { ...projectCompilerOptions(), allowJs: true, strict: true };
+  const host = ts.createCompilerHost(options, true);
+  const readSource = host.readFile;
+  host.readFile = (path) => scripts.get(path) ?? readSource(path);
+
+  const program = ts.createProgram(fileNames, options, host);
+  const checker = program.getTypeChecker();
+  return fileNames.flatMap((path) => checkFile(program.getSourceFile(path), checker));
+}
+
+function projectCompilerOptions() {
+  const configPath = "tsconfig.json";
+  if (!existsSync(configPath))
+    return { noLib: true, noResolve: true, target: ts.ScriptTarget.Latest, types: [] };
+
+  const { config } = ts.readConfigFile(configPath, ts.sys.readFile);
+  return ts.convertCompilerOptionsFromJson(config.compilerOptions, ".").options;
+}
+
+function inlineScripts(path) {
+  const html = readFileSync(path, "utf8");
+  const scripts = html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi);
+  return [...scripts].flatMap((match, index) => {
+    const [, attributes, code] = match;
+    const type = attributes.match(/\btype\s*=\s*["']([^"']+)["']/i)?.[1];
+    const unsupportedType = type !== undefined && !["module", "text/javascript"].includes(type);
+    if (unsupportedType) return [];
+    if (!code.trim()) return [];
+
+    const start = match.index + match[0].indexOf(">") + 1;
+    const padding = html.slice(0, start).replace(/[^\r\n]/g, " ");
+    return [[`${path}.${index}.js`, padding + code]];
+  });
+}
+
+function checkFile(source, checker) {
   const errors = [];
-  const analysis = { source, errors };
+  const analysis = { source, errors, checker };
   function visit(node) {
     if (ts.isFunctionLike(node)) checkFunction(node, analysis);
     if (ts.isIfStatement(node)) checkIfCondition(node, analysis);
@@ -38,6 +79,7 @@ function checkFile(path) {
   visit(source);
   checkNesting(source, 0, analysis);
 
+  const path = relative(process.cwd(), source.fileName).replace(/(\.html)\.\d+\.js$/, "$1");
   return errors.map((error) => `${path}:${error}`);
 }
 
@@ -88,11 +130,15 @@ function checkNesting(node, depth, analysis) {
 function checkIfCondition(node, analysis) {
   const { source, errors } = analysis;
   const start = source.getLineAndCharacterOfPosition(node.getStart(source)).line;
-  const end = source.getLineAndCharacterOfPosition(node.expression.end).line;
+  const closingParen = node
+    .getChildren(source)
+    .find((child) => child.kind === ts.SyntaxKind.CloseParenToken);
+  const end = source.getLineAndCharacterOfPosition(closingParen?.end ?? node.expression.end).line;
   if (start !== end) errors.push(`${start + 1} if condition must fit on one line`);
   const terms = conditionTerms(node.expression);
   if (terms.length > 3) errors.push(`${start + 1} if condition exceeds three boolean terms`);
-  const unnamedCompound = terms.length > 1 && !terms.every(isNamedBoolean);
+  const unnamedCompound =
+    terms.length > 1 && !terms.every((term) => isLocalBoolean(term, analysis));
   if (unnamedCompound) errors.push(`${start + 1} compound if must use named local booleans`);
 }
 
@@ -115,16 +161,44 @@ function isNegation(expression) {
   return isUnary && expression.operator === ts.SyntaxKind.ExclamationToken;
 }
 
-function isNamedBoolean(expression) {
-  if (ts.isIdentifier(expression)) return true;
-  if (!isNegation(expression)) return false;
+function isLocalBoolean(expression, { source, checker }) {
+  const value = isNegation(expression) ? ts.skipParentheses(expression.operand) : expression;
+  if (!ts.isIdentifier(value)) return false;
+  if (value.text.length < 2) return false;
 
-  return ts.isIdentifier(expression.operand);
+  const declarations = checker.getSymbolAtLocation(value)?.declarations ?? [];
+  const declaration = declarations.find((candidate) => isLocalBinding(candidate, source));
+  if (!declaration) return false;
+  if (isModuleBindingUsedInFunction(declaration, value)) return false;
+
+  return isBooleanType(checker.getTypeAtLocation(value));
+}
+
+function isLocalBinding(declaration, source) {
+  if (declaration.getSourceFile() !== source) return false;
+
+  return (
+    ts.isVariableDeclaration(declaration) ||
+    ts.isBindingElement(declaration) ||
+    ts.isParameter(declaration)
+  );
+}
+
+function isModuleBindingUsedInFunction(declaration, value) {
+  const declaredOutsideFunction = !ts.findAncestor(declaration.parent, ts.isFunctionLike);
+  const usedInsideFunction = !!ts.findAncestor(value.parent, ts.isFunctionLike);
+  return declaredOutsideFunction && usedInsideFunction;
+}
+
+function isBooleanType(type) {
+  if (type.isUnion()) return type.types.every(isBooleanType);
+
+  return !!(type.flags & (ts.TypeFlags.BooleanLike | ts.TypeFlags.Never));
 }
 
 function checkTestScenario(node, analysis) {
   const { source, errors } = analysis;
-  const testFile = source.fileName.endsWith(".test.ts");
+  const testFile = /\.test\.(?:[cm]?[jt]s|[jt]sx)$/.test(source.fileName);
   const testCall = ts.isIdentifier(node.expression) && node.expression.text === "test";
   if (!testFile || !testCall) return;
 
@@ -183,7 +257,7 @@ function predicateReturns(node) {
 
 function checkNamedCondition(expression, context, analysis) {
   const terms = conditionTerms(expression);
-  const unnamedTerms = terms.length > 1 && !terms.every(isNamedBoolean);
+  const unnamedTerms = terms.length > 1 && !terms.every((term) => isLocalBoolean(term, analysis));
   const tooManyTerms = terms.length > 3;
   const readable = !unnamedTerms && !tooManyTerms;
   if (readable) return;

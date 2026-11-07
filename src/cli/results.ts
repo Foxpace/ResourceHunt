@@ -1,5 +1,6 @@
 import { defaultBadgeOptions, type selectAwards } from "../competition/awards.ts";
 import { createMatchStatistics } from "../engine/match-statistics.ts";
+import type { BotActionTiming } from "../runtime/action-timing.ts";
 import { integerFlag } from "./options.ts";
 
 export function badgeOptionsFromFlags(
@@ -29,6 +30,22 @@ const optionalColumns = [
 ];
 
 const counterNames = Object.keys(createMatchStatistics());
+
+export function printActionTiming(rows: BotActionTiming[]): void {
+  console.log("Bot decision latency (ms, including worker round trip)");
+  const actions = rows.flatMap(({ id, byAction, ...total }) => [
+    { id, action: "all", ...total },
+    ...byAction.map((row) => ({ id, ...row })),
+  ]);
+  console.table(
+    actions.map(({ totalMs, meanMsPerAction, meanMsPerTick, ...row }) => ({
+      ...row,
+      totalMs: totalMs.toFixed(3),
+      meanMsPerAction: meanMsPerAction?.toFixed(3) ?? "—",
+      meanMsPerTick: meanMsPerTick.toFixed(3),
+    })),
+  );
+}
 
 export function printStandings<T extends { id: string; statistics?: object }>(
   rows: T[],

@@ -4,7 +4,7 @@ This guide supplies authoring and evaluation context for the [Copilot bot workfl
 
 ## Workshop workflow
 
-Participants follow [WORKSHOP.md](../WORKSHOP.md): Bot Intention, Bot Design, Bot Plan, Bot Build, and Bot Hand-in, one approved Markdown artifact each in `bots/<bot-id>/_workflow/`. Agents record an approval only after the approving role says yes in chat. The workshop's final bot is one file, `bots/<bot-id>.ts`; practice bots are `bots/<bot-id>-<name>.ts` and are deleted when the hand-in zip is packed. See the [workflow README](../.github/bot-workflow/README.md) for what the hook enforces.
+Participants follow [WORKSHOP.md](../WORKSHOP.md): Bot Intention, Bot Design, Bot Plan, Bot Build, and Bot Hand-in, one approved Markdown artifact each in `bots/<bot-id>/_workflow/`. Agents record an approval only after the approving role says yes in chat. The workshop's final bot is one file, `bots/<bot-id>.ts`. Practice bots live in `bots/<bot-id>-<name>.ts` and stay on disk when the hand-in ZIP is packed. See the [workflow README](../.github/bot-workflow/README.md) for what the hook enforces.
 
 ## Reading order
 
@@ -43,7 +43,7 @@ These paths are read dependencies, not permission to import private modules into
 
 ## Loading a strategy
 
-A discovered file must default-export a class with static metadata and an `act` method. The [worker](../src/runtime/bot-worker.ts) validates:
+A discovered file must default-export a class with an `act` instance method and declare `static metadata` as an object literal with string literals for `id`, `name`, and `description`. [Discovery](../src/runtime/bot-source.ts) checks the source and metadata:
 
 - `id` matches `^[a-z0-9][a-z0-9-]{0,47}$`, so it has 1 to 48 characters and begins with a lowercase letter or digit. IDs must be unique across discovered strategies.
 - `name` has at least one non-whitespace character and is at most 60 characters.
@@ -55,7 +55,7 @@ Use `bots/<bot-id>.ts` for each strategy entry point, with imports from `../src/
 
 Discovery recursively visits `bots/`. It skips every file or directory whose name starts with `_` or `.`, and skips `.test.ts`, `.spec.ts`, and `.d.ts` files. An ordinary helper such as `bots/harbor/policy.ts` would be inspected as a bot. Name it `_policy.ts` instead. `_workflow` keeps artifacts and raw evidence out of discovery.
 
-Discovery imports each candidate in an inspection worker and checks its metadata/prototype without constructing an instance. Top-level module code still runs during discovery. Keep imports and module initialization cheap and side-effect-free. Match start validates the ID again. If metadata changed after discovery, refresh the UI or start a new CLI invocation.
+Discovery reads and compiles each candidate without importing it. At match start, the game rechecks each selected entry and its ID before any selected bot starts. The worker imports the checked entry and evaluates its dependencies using the normal TypeScript loader. If an ID changed after discovery, refresh the UI or start a new CLI invocation.
 
 Strategy entry names match their metadata IDs, and the workflow folder uses the same ID. Start IDs with a letter for workflow compatibility, even though runtime IDs may begin with a digit.
 
@@ -73,7 +73,7 @@ An invalid action or thrown decision records an error and consumes a turn. A dec
 
 Worker `console.log`, `console.info`, and `console.debug` go to stderr to preserve JSON stdout. Logs are not structured observations. Avoid logging every target calculation or large snapshots inside the decision loop.
 
-Workers are not a security sandbox. They have local Node filesystem and network permissions. Bot policy must not use those powers, and evaluators must run only trusted bot code.
+Selected bots and their imports run with the developer's Node.js filesystem and network permissions during a match. Play only bots you trust.
 
 ## Strategy correctness checklist
 
@@ -119,9 +119,9 @@ Human CLI examples:
 ```sh
 yarn bots
 yarn play --bots harbor,nearest,nearest,nearest --biome forest --seed dev-a --ticks 300
-yarn --silent bench --bots harbor,nearest,nearest,nearest --matches 16 --biome riverlands --seed dev --json
-yarn --silent play --bots harbor,nearest,nearest,nearest --seed replay-a --json --replay results/harbor.replay.json
-yarn --silent tournament --bots harbor,nearest,nearest,nearest --biome forest --wins 3 --json
+yarn bench --bots harbor,nearest,nearest,nearest --matches 16 --biome riverlands --seed dev --json
+yarn play --bots harbor,nearest,nearest,nearest --seed replay-a --json --replay results/harbor.replay.json
+yarn tournament --bots harbor,nearest,nearest,nearest --biome forest --wins 3 --json
 yarn inspect --input results/harbor.replay.json --tick 45 --bot harbor --map
 ```
 

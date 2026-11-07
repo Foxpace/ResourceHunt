@@ -44,12 +44,13 @@ export function lootGuardianCache(turn: WorldTurn, command: WorldCommand): void 
   if (!("targetId" in action)) return;
 
   const cache = turn.state.caches.find((site) => site.id === action.targetId);
-  const accessible = cache ? isStandingOnUnguardedCache(bot.position, cache) : false;
+  const canReachCache = cache ? isStandingOnUnguardedCache(bot.position, cache) : false;
   const kind = cache?.inventory[0];
-  const fits =
-    !!kind &&
+  const hasLoot = !!kind;
+  const lootFits =
+    hasLoot &&
     inventoryWeight(bot.inventory) + RESOURCES[kind].weight <= turn.context.config.capacity;
-  if (!accessible || !fits || !kind) {
+  if (!canReachCache || !lootFits || !hasLoot) {
     bot.lastAction = "Cache is guarded, empty, distant, or cargo cannot fit";
     return;
   }

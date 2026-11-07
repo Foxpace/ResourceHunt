@@ -134,13 +134,16 @@ export class ApplicationView {
   }
 
   private renderTournamentButton(): void {
-    const running = this.tournament.tournament.running;
-    const run = button("run-tournament");
-    run.disabled = running || !this.model.state.canGenerate;
-    run.querySelector("span")!.textContent = running ? "Tournament running…" : "Start tournament";
-    const unseen = this.activeTab !== "tournament";
-    const hasRounds = this.tournament.tournament.rounds.length > 0;
-    if (unseen && hasRounds) button("tab-tournament").classList.add("has-news");
+    const tournamentRunning = this.tournament.tournament.running;
+    const tournamentButton = button("run-tournament");
+    tournamentButton.disabled = tournamentRunning || !this.model.state.canGenerate;
+    tournamentButton.querySelector("span")!.textContent = tournamentRunning
+      ? "Tournament running…"
+      : "Start tournament";
+    const tournamentTabHidden = this.activeTab !== "tournament";
+    const hasCompletedRounds = this.tournament.tournament.rounds.length > 0;
+    if (tournamentTabHidden && hasCompletedRounds)
+      button("tab-tournament").classList.add("has-news");
   }
 
   private showTab(active: CompetitionTab): void {
@@ -155,21 +158,21 @@ export class ApplicationView {
     if (active === "arena") this.mapView.resize();
   }
 
-  private renderFinalResults(refresh = false): void {
-    const final = this.model.playback.finalSnapshot;
-    const changed = this.renderedFinal !== final;
-    if (!changed && !refresh) return;
+  private renderFinalResults(forceRefresh = false): void {
+    const finalSnapshot = this.model.playback.finalSnapshot;
+    const finalSnapshotChanged = this.renderedFinal !== finalSnapshot;
+    if (!finalSnapshotChanged && !forceRefresh) return;
 
-    this.renderedFinal = final;
-    getElement("match-results").innerHTML = final
-      ? renderMatchResults(final, {
+    this.renderedFinal = finalSnapshot;
+    getElement("match-results").innerHTML = finalSnapshot
+      ? renderMatchResults(finalSnapshot, {
           badges: this.badgeOptions(),
           hiddenColumns: this.hiddenResultColumns,
         })
       : EMPTY_RESULTS;
-    const unseen = this.activeTab !== "results";
-    const fresh = !!final && changed;
-    if (unseen && fresh) button("tab-results").classList.add("has-news");
+    const resultsTabHidden = this.activeTab !== "results";
+    const hasNewFinalResults = !!finalSnapshot && finalSnapshotChanged;
+    if (resultsTabHidden && hasNewFinalResults) button("tab-results").classList.add("has-news");
   }
 
   private badgeOptions() {
@@ -209,6 +212,7 @@ export class ApplicationView {
     play.querySelector("use")!.setAttribute("href", icon);
     play.classList.toggle("is-playing", this.model.playback.isPlaying);
     button("step").disabled = !controls.canStep;
+    button("stop-match").disabled = !controls.canStop;
     button("export").disabled = !controls.canExport;
     const timeline = input("timeline");
     timeline.disabled = !controls.canSeek;
@@ -218,7 +222,9 @@ export class ApplicationView {
       "--progress",
       `${(controls.tick / Math.max(1, controls.maxTick)) * 100}%`,
     );
-    getElement("playback-mode").hidden = !controls.isReplay;
+    const mode = getElement("playback-mode");
+    mode.hidden = !controls.status;
+    if (mode.textContent !== controls.status) mode.textContent = controls.status;
     this.renderOverlays();
   }
 
@@ -338,6 +344,9 @@ export class ApplicationView {
     button("step").onclick = () => {
       void this.model.dispatch({ type: "stepPlayback" });
     };
+    button("stop-match").onclick = () => {
+      void this.model.dispatch({ type: "stopMatch" });
+    };
     input("timeline").oninput = () => {
       void this.model.dispatch({ type: "seekPlayback", tick: Number(input("timeline").value) });
     };
@@ -346,14 +355,16 @@ export class ApplicationView {
 
   private onKeyDown = (event: KeyboardEvent): void => {
     const target = event.target as HTMLElement;
-    const typing = target.matches("input, select, textarea, button, summary, a, [contenteditable]");
-    const modified = event.metaKey || event.ctrlKey || event.altKey;
-    const arena = this.activeTab === "arena";
-    if (typing || modified || !arena) return;
+    const targetIsInteractive = target.matches(
+      "input, select, textarea, button, summary, a, [contenteditable]",
+    );
+    const modifierPressed = event.metaKey || event.ctrlKey || event.altKey;
+    const arenaTabActive = this.activeTab === "arena";
+    if (targetIsInteractive || modifierPressed || !arenaTabActive) return;
 
     const control = { " ": button("play"), ArrowRight: button("step") }[event.key];
-    const usable = !!control && !control.disabled;
-    if (!usable) return;
+    const controlEnabled = !!control && !control.disabled;
+    if (!controlEnabled) return;
 
     event.preventDefault();
     control.click();

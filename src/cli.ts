@@ -2,11 +2,12 @@ import { isMainModule } from "./runtime/entrypoint.ts";
 import { HELP, parseArguments, configFromFlags } from "./cli/options.ts";
 import { runBenchmark } from "./runtime/benchmark.ts";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, extname, resolve } from "node:path";
 import { selectAwards } from "./competition/awards.ts";
 import { inspectResults } from "./cli/inspect.ts";
 import {
   badgeOptionsFromFlags,
+  printActionTiming,
   printBadges,
   printStandings,
   validateStatisticFlags,
@@ -64,11 +65,31 @@ async function runBotCommand(command: string, flags: ReadonlyMap<string, string>
   return hasErrors ? 2 : 0;
 }
 
-async function writeJson(path: string, data: unknown) {
+async function writeJson(path: string, data: unknown, label: string): Promise<void> {
   const absolute = resolve(path);
   await mkdir(dirname(absolute), { recursive: true });
-  await writeFile(absolute, JSON.stringify(data, null, 2) + "\n");
+
+  const json = JSON.stringify(data, null, 2) + "\n";
+  const extension = extname(absolute);
+  const stem = absolute.slice(0, absolute.length - extension.length);
+  let destination = absolute;
+  for (let suffix = 1; !(await tryWriteNewFile(destination, json)); suffix++) {
+    destination = `${stem}-${suffix}${extension}`;
+  }
+
+  console.error(`Saved ${label} to ${destination}`);
 }
+
+async function tryWriteNewFile(path: string, contents: string): Promise<boolean> {
+  try {
+    await writeFile(path, contents, { flag: "wx" });
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    return false;
+  }
+}
+
 if (isMainModule(import.meta.url)) {
   try {
     process.exitCode = await main();
@@ -90,7 +111,7 @@ async function playMatch(
     const badges = selectAwards(result.standings, config.seed, badgeOptionsFromFlags(flags));
     const payload = { ...result, badges };
     const hasBotErrors = payload.standings.some((bot) => bot.errors > 0);
-    if (flags.has("replay")) await writeJson(flags.get("replay")!, game.replay());
+    if (flags.has("replay")) await writeJson(flags.get("replay")!, game.replay(), "replay");
     if (!flags.has("json")) {
       console.log(`Resource Hunt · seed ${config.seed} · ${result.ticks} ticks`);
       printStandings(result.standings, flags);
@@ -110,7 +131,9 @@ async function benchmarkMatches(
 ) {
   const matches = Number(flags.get("matches") ?? 20);
   const benchmark = await runBenchmark(bots, config, {
-    matches: matches,
+    matches,
+    scoreHistory: flags.has("score-history"),
+    actionTiming: flags.has("action-timing"),
     onProgress: flags.has("json")
       ? undefined
       : (completed) => {
@@ -121,6 +144,7 @@ async function benchmarkMatches(
   if (!flags.has("json")) {
     console.error("");
     printStandings(benchmark.standings, flags);
+    if (benchmark.actionTiming) printActionTiming(benchmark.actionTiming);
   }
 
   return { payload: benchmark, hasBotErrors };
@@ -141,5 +165,5 @@ async function writeCommandOutput(
   flags: ReadonlyMap<string, string>,
 ): Promise<void> {
   if (flags.has("json")) console.log(JSON.stringify(payload, null, 2));
-  if (flags.has("output")) await writeJson(flags.get("output")!, payload);
+  if (flags.has("output")) await writeJson(flags.get("output")!, payload, "results");
 }

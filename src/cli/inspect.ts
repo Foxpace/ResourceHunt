@@ -71,7 +71,9 @@ function inspectRound(report: TournamentReport, flags: ReadonlyMap<string, strin
 function findRound(report: TournamentReport, flags: ReadonlyMap<string, string>) {
   const biome = flags.get("biome");
   const roundNumber = flags.get("round");
-  if (biome && roundNumber) throw new Error("Choose either --round or --biome");
+  const biomeSelected = Boolean(biome);
+  const roundSelected = Boolean(roundNumber);
+  if (biomeSelected && roundSelected) throw new Error("Choose either --round or --biome");
   if (biome) {
     const matches = report.rounds.filter(({ result }) => result.config.biome === biome);
     if (!matches.length) throw new Error(`No completed round for biome ${biome}`);

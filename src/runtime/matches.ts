@@ -1,20 +1,28 @@
 import { Game } from "../engine/game.ts";
-import type { GameConfig } from "../engine/types.ts";
+import type { BotController, GameConfig } from "../engine/types.ts";
 import { createControllers, type BotDescriptor } from "./bots.ts";
+
+interface MatchOptions {
+  recordReplay?: boolean;
+  wrapController?: (controller: BotController) => BotController;
+}
 
 export async function createGame(
   bots: BotDescriptor[],
   config: GameConfig,
-  recordReplay = true,
+  options: boolean | MatchOptions = true,
 ): Promise<Game> {
   const controllers = await createControllers(bots, config);
   try {
-    return new Game(controllers, config, { recordReplay });
+    const matchOptions = typeof options === "boolean" ? { recordReplay: options } : options;
+    const { recordReplay, wrapController } = matchOptions;
+    const lineup = wrapController ? controllers.map(wrapController) : controllers;
+    return new Game(lineup, config, { recordReplay });
   } catch (error) {
     controllers.forEach((controller) => controller.dispose());
     throw error;
   }
 }
-export async function runToEnd(game: Game) {
-  for (let index = game.result().ticks; index < game.config.ticks; index++) await game.step();
+export function runToEnd(game: Game): Promise<void> {
+  return game.runToEnd();
 }

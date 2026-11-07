@@ -12,6 +12,25 @@ import {
 } from "./helpers/playback-fixtures.ts";
 import { createMatchRequest } from "./helpers/game-fixtures.ts";
 
+test("stopping a live match keeps the in-flight tick and releases the session", async (context) => {
+  // Given
+  const fixture = new ControlledPlaybackFixture(context);
+  const { client, playback } = fixture;
+  await fixture.createLiveMatch();
+  const tick = await fixture.beginTick("play");
+
+  // When
+  const stopping = playback.stop();
+  tick.gate.resolve();
+  await Promise.all([stopping, tick.completion]);
+
+  // Then
+  assert.equal(playback.isStopped, true);
+  assertPlayback(playback, { tick: 1, playing: false, canStep: false, canPlay: true });
+  assert.deepEqual(client.releases, ["session-0"]);
+  assert.equal((await playback.export()).frames.length, 1);
+});
+
 test("an imported replay supersedes a pending creation and releases its late session", async (context) => {
   // Given
   const { playback, client } = new ControlledPlaybackFixture(context);

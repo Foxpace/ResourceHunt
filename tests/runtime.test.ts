@@ -1,9 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { request, type RequestOptions } from "node:http";
 import { normalizeConfig } from "../src/engine/config.ts";
-import { discoverBots, getDefaultBotIds, selectBots } from "../src/runtime/bots.ts";
+import {
+  createControllers,
+  discoverBots,
+  getDefaultBotIds,
+  selectBots,
+} from "../src/runtime/bots.ts";
 import { runBenchmark } from "../src/runtime/benchmark.ts";
 import { parseArguments, configFromFlags } from "../src/cli/options.ts";
+import { createObservation } from "./helpers/sdk-fixtures.ts";
 import {
   assertBenchmarkRotation,
   createBotDirectory,
@@ -11,6 +18,8 @@ import {
   createHttpServer,
   DISCOVERY_FILES,
   HUNG_BOT_FILES,
+  TERRAIN_EDIT_BOT_FILES,
+  WEATHER_TERRAIN_BOT_FILES,
   downloadHttpReplay,
   finishHttpMatch,
   runCli,
@@ -84,6 +93,36 @@ test("benchmarks rotate base slots, reuse seeds, and publish progress", async ()
   assert.ok(result.standings.every((bot) => Number.isFinite(bot.meanScore)));
   assert.ok(result.standings.every((bot) => bot.errors === 0));
   assertBenchmarkStatistics(result);
+});
+
+test("benchmarks can average sandbox decision latency by action", async (context) => {
+  // Given
+  const directory = await createBotDirectory(context, DISCOVERY_FILES);
+  const { bots } = await discoverBots(directory);
+  const config = normalizeConfig({ ticks: 3 });
+
+  // When
+  const result = await runBenchmark(bots, config, { matches: 2, actionTiming: true });
+  const { byAction, id, ...timing } = result.actionTiming![0]!;
+
+  // Then
+  assert.equal(timing.actions, 6);
+  assert.ok(timing.totalMs > 0);
+  assert.equal(timing.meanMsPerAction, timing.totalMs / 6);
+  assert.equal(timing.meanMsPerTick, timing.meanMsPerAction);
+  assert.equal(id, "new-bot");
+  assert.deepEqual(byAction, [{ action: "skip", ...timing }]);
+});
+
+test("CLI benchmarks omit decision timing by default", async () => {
+  // Given
+  const args = ["bench", "--bots", "nearest", "--matches", "1", "--ticks", "2", "--json"];
+
+  // When
+  const { stdout } = await runCli(args);
+
+  // Then
+  assert.equal(Object.hasOwn(JSON.parse(stdout), "actionTiming"), false);
 });
 
 function assertBenchmarkStatistics(result: Awaited<ReturnType<typeof runBenchmark>>) {
@@ -173,6 +212,50 @@ test("the CLI emits parseable match JSON without stderr output", async () => {
   assert.equal(JSON.parse(stdout).ticks, 8);
 });
 
+test("worker turns receive independent terrain even when its revision stays the same", async (context) => {
+  // Given
+  const directory = await createBotDirectory(context, TERRAIN_EDIT_BOT_FILES);
+  const { bots } = await discoverBots(directory);
+
+  // When
+  const result = await runWorkerMatch(bots, { ticks: 3, naturalEvents: false });
+
+  // Then
+  assert.equal(result.standings[0]!.errors, 0);
+});
+
+test(
+  "a worker rejects an overlapping decision and completes the first",
+  { timeout: 3000 },
+  async (context) => {
+    // Given
+    const lineup = selectBots(await discoverBots(), ["nearest"]);
+    const [worker] = await createControllers(lineup, normalizeConfig());
+    context.after(() => worker!.dispose());
+    const observation = createObservation();
+
+    // When
+    const first = worker!.decide(observation);
+    const second = await worker!.decide(observation);
+
+    // Then
+    assert.match(second.error ?? "", /request in progress/);
+    assert.deepEqual(await first, { action: { type: "skip" } });
+  },
+);
+
+test("worker terrain follows a hazard from forecast through expiry", async (context) => {
+  // Given
+  const directory = await createBotDirectory(context, WEATHER_TERRAIN_BOT_FILES);
+  const { bots } = await discoverBots(directory);
+
+  // When
+  const result = await runWorkerMatch(bots, { ticks: 26, biome: "volcanic", seed: "tick-volcano" });
+
+  // Then
+  assert.equal(result.standings[0]!.errors, 0);
+});
+
 test("the CLI exits with code one for invalid configuration", async () => {
   // Given
   const argumentsList = ["play", "--ticks", "0", "--json"];
@@ -246,3 +329,86 @@ test("the HTTP server rejects cross-origin game creation", async (context) => {
   // Then
   assert.equal(response.status, 403);
 });
+
+test("the HTTP server rejects game creation with a forged Host and matching Origin", async (context) => {
+  // Given
+  const http = await createHttpServer(context);
+  const host = `rebind.example:${new URL(http.origin).port}`;
+  const headers = { Host: host, Origin: `http://${host}` };
+  const options = { path: "/api/games", method: "POST", headers };
+  const body = JSON.stringify({ config: normalizeConfig({ ticks: 1 }), botIds: ["nearest"] });
+
+  // When
+  const status = await requestStatus(http.origin, options, body);
+
+  // Then
+  assert.equal(status, 403);
+});
+
+test("the HTTP server rejects asset requests with a forged Host and no Origin", async (context) => {
+  // Given
+  const http = await createHttpServer(context);
+  const headers = { Host: `rebind.example:${new URL(http.origin).port}` };
+
+  // When
+  const status = await requestStatus(http.origin, { path: "/", headers });
+
+  // Then
+  assert.equal(status, 403);
+});
+
+test("an absolute request target cannot override the validated Host", async (context) => {
+  // Given
+  const http = await createHttpServer(context);
+  const origin = `http://rebind.example:${new URL(http.origin).port}`;
+  const options = { path: `${origin}/api/bots`, headers: { Origin: origin } };
+
+  // When
+  const status = await requestStatus(http.origin, options);
+
+  // Then
+  assert.equal(status, 400);
+});
+
+test("the HTTP server rejects duplicate Host headers", async (context) => {
+  // Given
+  const http = await createHttpServer(context);
+  const headers = ["Host", new URL(http.origin).host, "Host", "rebind.example"];
+
+  // When
+  const status = await requestStatus(http.origin, { path: "/", headers });
+
+  // Then
+  assert.equal(status, 403);
+});
+
+for (const hostname of ["localhost", "127.0.0.1"]) {
+  test(`same-origin requests on ${hostname} reach match validation`, async (context) => {
+    // Given
+    const http = await createHttpServer(context);
+    const origin = new URL(http.origin);
+    origin.hostname = hostname;
+
+    // When
+    const response = await fetch(new URL("/api/games", origin), {
+      method: "POST",
+      headers: { Origin: origin.origin },
+      body: "{}",
+    });
+
+    // Then
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), { error: "Game configuration is required" });
+  });
+}
+
+function requestStatus(origin: string, options: RequestOptions, body?: string) {
+  return new Promise<number | undefined>((resolve, reject) => {
+    const outgoing = request(origin, options, (response) => {
+      response.resume();
+      resolve(response.statusCode);
+    });
+    outgoing.on("error", reject);
+    outgoing.end(body);
+  });
+}

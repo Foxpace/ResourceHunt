@@ -2,7 +2,7 @@ import { tournamentReport, Tournament, type TournamentReport } from "../competit
 import { BIOMES } from "../engine/biomes.ts";
 import type { GameConfig } from "../engine/types.ts";
 import type { BotDescriptor } from "../runtime/bots.ts";
-import { createTournamentGame, recordTournamentScores } from "../runtime/tournament-round.ts";
+import { runTournamentRound } from "../runtime/tournament-round.ts";
 import { integerFlag } from "./options.ts";
 import { badgeOptionsFromFlags, printBadges, printStandings } from "./results.ts";
 
@@ -41,13 +41,8 @@ function printTournamentProgress(tournament: Tournament): void {
 
 function createCliTournament(bots: BotDescriptor[]): Tournament {
   return new Tournament({
-    async tournamentRound(request) {
-      const game = await createTournamentGame(bots, request.config, request.roundIndex);
-      try {
-        return await recordTournamentScores(game);
-      } finally {
-        game.dispose();
-      }
+    tournamentRound(request, signal) {
+      return runTournamentRound(bots, request, signal);
     },
   });
 }

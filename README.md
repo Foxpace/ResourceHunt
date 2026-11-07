@@ -6,8 +6,8 @@
 
 <p align="center">
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&amp;logo=typescript&amp;logoColor=white" alt="TypeScript" /></a>
-  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-22.18%2B-339933?style=flat-square&amp;logo=node.js&amp;logoColor=white" alt="Node.js 22.18+" /></a>
-  <a href="https://yarnpkg.com/"><img src="https://img.shields.io/badge/Yarn-1.22.22-2C8EBB?style=flat-square&amp;logo=yarn&amp;logoColor=white" alt="Yarn 1.22.22" /></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-23.11.1%2B-339933?style=flat-square&amp;logo=node.js&amp;logoColor=white" alt="Node.js 23.11.1+" /></a>
+  <a href="https://yarnpkg.com/"><img src="https://img.shields.io/badge/Yarn-4.5.3-2C8EBB?style=flat-square&amp;logo=yarn&amp;logoColor=white" alt="Yarn 4.5.3" /></a>
   <a href="https://tsx.is/"><img src="https://img.shields.io/badge/tsx-0F172A?style=flat-square" alt="tsx" /></a>
   <a href="https://esbuild.github.io/"><img src="https://img.shields.io/badge/esbuild-FFCF00?style=flat-square&amp;logo=esbuild&amp;logoColor=black" alt="esbuild" /></a>
 </p>
@@ -24,9 +24,12 @@ Watch matches in the browser or run headless benchmarks. Both use the same game 
 
 ## Run
 
-Requires Node.js **22.18+** and Yarn **1.22.22**.
+Requires Node.js **23.11.1+** and Yarn **4.5.3**.
+
+If you use nvm, run `nvm install` and `nvm use` from the repository root to select Node.js 23.11.1. Corepack uses the Yarn version pinned in `package.json`.
 
 ```sh
+corepack enable yarn
 yarn install
 yarn dev
 ```
@@ -51,18 +54,20 @@ yarn bench --bots my-bot,nearest,nearest,nearest --matches 20 --seed training
 yarn play --bots nearest,nearest,nearest --seed replicas
 
 # Save JSON results and a replay
-yarn --silent play --seed training --json \
+yarn play --seed training --json \
   --output results/match.json --replay results/replay.json
 
 # Pipe benchmark results into your own analysis
-yarn --silent bench --matches 20 --json > results.json
+yarn bench --matches 20 --score-history --json > results.json
 ```
+
+`--score-history` adds banked points by tick to each benchmark match in JSON. Row zero is the starting score, and columns follow the match's `botOrder`.
 
 In the browser, open **Bot statistics** beside the leaderboard and select a participant. Counters follow the current tick during a live match or while scrubbing an exported replay. Older replay files can still show scores, items banked, captures, thefts, losses, and errors from their recorded frames.
 
 When a match finishes, a victory card appears on the board. **View results** opens the **Results** tab with the podium, final standings, and achievements. It shows up to three standout awards and five more drawn from the remaining earned awards. See [rewards and achievements](docs/rewards.md) for resource values, badge rules, and tournament wins.
 
-Switch the setup to **Tournament**, set the round wins needed, and choose **Start tournament** to cycle through biomes without showing maps. The tournament starts on the selected biome and ends when a bot reaches the win target, which defaults to three. Tied leaders share a round win. Standings rank bots by total points banked and show badge totals. Choose any completed round and move the tick slider to see how its scores changed.
+Switch the setup to **Tournament**, set the round wins needed, and choose **Start tournament** to cycle through biomes without showing maps. The tournament starts on the selected biome and ends when a bot reaches the win target, which defaults to three. Tied leaders share a round win. Standings rank bots by round wins, then total banked points, and show badge totals. Choose any completed round and move the tick slider to see how its scores changed.
 
 Open **Display options** on the Results or Tournament tab to choose how many badges are shown or select the statistics columns to display.
 
@@ -138,7 +143,7 @@ Return `move` with direction `N`, `W`, `E`, or `S`, or return `grab`, `skip`, `h
 
 The [SDK reference](docs/sdk.md) documents every helper, action, state field, and exported type, with examples for movement costs, pathfinding, and inventory. The included [nearest](bots/nearest.ts) bot is a deliberately simple baseline to beat. `Math.random` is seeded per bot. Helpers beginning with `_` and test files are excluded from discovery; bot IDs must be unique lowercase letters, digits, or hyphens.
 
-Workers enforce decision timeouts. Bots run with local Node.js filesystem and network permissions.
+Bot discovery checks source without executing it. During matches, selected bots run in Node.js workers with the developer's filesystem and network permissions. Workers enforce decision timeouts. Play only bots you trust.
 
 For bot discovery details, lifecycle, tests, and evaluation, read [bot development context](docs/bot-development.md). For the AI-native workshop, start with [WORKSHOP.md](WORKSHOP.md): five Copilot agents take a team from intention to design, plan, build, and hand-in, with one human-approved Markdown artifact per stage. Bot agents may inspect the game and run anything, but change only files in `bots/`.
 
@@ -176,7 +181,7 @@ JSON standings and benchmarks include captures, outposts owned, stolen units, an
 
 ```sh
 yarn run check  # Formatting, TypeScript, and tests
-yarn format     # Format the codebase
+yarn format     # Format the codebase when Prettier is installed
 yarn start      # Run without watching
 yarn build      # Export browser assets to dist/
 ```
@@ -185,7 +190,7 @@ yarn build      # Export browser assets to dist/
 
 Game rules live in [`src/engine/`](src/engine/), bot execution and benchmarks in [`src/runtime/`](src/runtime/), and the UI in [`src/web/`](src/web/). Use [`src/index.ts`](src/index.ts) to run the engine from your own scripts.
 
-Runtime dependencies are limited to `tsx` and `esbuild`. Tests use Node's built-in runner. Use `yarn install --frozen-lockfile` in CI.
+Runtime dependencies are limited to `tsx` and `esbuild`. Tests use Node's built-in runner. Use `yarn install --immutable` in CI.
 
 ## License
 
@@ -208,7 +213,7 @@ src/
     ├── model/          Application state, playback, and map descriptions
     └── view/           DOM bindings, HTML panels, and canvas drawing
 bots/                   Example bot strategies
-scripts/                Code structure checks
+scripts/                Formatting and structure checks
 tests/                  Behavior tests and shared local game client
 ```
 

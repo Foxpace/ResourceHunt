@@ -1,21 +1,35 @@
 import { Worker } from "node:worker_threads";
-import { pathToFileURL } from "node:url";
-import type { BotController, BotMetadata, Decision, Observation } from "../engine/types.ts";
+import type {
+  BotController,
+  BotMetadata,
+  Decision,
+  GameMap,
+  Observation,
+} from "../engine/types.ts";
 import type { BotDescriptor } from "./bots.ts";
-import type { WorkerRequest, WorkerResponse } from "./worker-protocol.ts";
+import { getObservationTerrain } from "../engine/observation-terrain.ts";
+import type {
+  CheckedBotSource,
+  WorkerObservation,
+  WorkerRequest,
+  WorkerResponse,
+} from "./worker-protocol.ts";
 
 interface PendingWorkerRequest {
   resolveResponse(response: WorkerResponse): void;
   timeoutTimer: ReturnType<typeof setTimeout>;
 }
+const workerBusyMessage = "Bot worker already has a request in progress";
 
 export class WorkerBot implements BotController {
   metadata: BotMetadata;
   private worker: Worker;
   private isWorkerStopped = false;
   private pendingWorkerRequest?: PendingWorkerRequest;
+  private sentTerrain?: GameMap;
   constructor(
     private botDescriptor: BotDescriptor,
+    private source: CheckedBotSource,
     private decisionTimeoutMs: number,
   ) {
     this.metadata = {
@@ -24,6 +38,7 @@ export class WorkerBot implements BotController {
       description: botDescriptor.description,
     };
     this.worker = new Worker(new URL("./worker-entry.mjs", import.meta.url), {
+      execArgv: [],
       stdout: true,
       stderr: true,
     });
@@ -76,9 +91,12 @@ export class WorkerBot implements BotController {
     });
   }
 
-  async init(seed: string, inspect = false) {
+  async init(seed: string) {
+    if (this.isWorkerStopped) throw new Error("Bot worker is disabled");
+    if (this.pendingWorkerRequest) throw new Error(workerBusyMessage);
+
     const workerResponse = await this.sendWorkerRequest(
-      { type: "init", url: pathToFileURL(this.botDescriptor.file).href, seed, inspect },
+      { type: "init", source: this.source, seed },
       3000,
     );
     if (workerResponse.type !== "ready") {
@@ -90,35 +108,28 @@ export class WorkerBot implements BotController {
       );
     }
 
-    this.assignInstanceMetadata(workerResponse.metadata, inspect);
+    this.assignInstanceMetadata(workerResponse.metadata);
 
     return this.metadata;
   }
 
-  private assignInstanceMetadata(metadata: BotMetadata, inspect: boolean): void {
-    if (inspect) {
-      this.metadata = metadata;
-      return;
-    }
-
-    const strategyId = this.botDescriptor.strategyId ?? this.botDescriptor.id;
-    if (metadata.id !== strategyId)
-      throw new Error("Bot metadata changed since discovery; refresh the bot list");
-
+  private assignInstanceMetadata(metadata: BotMetadata): void {
+    const { id, name, strategyId } = this.botDescriptor;
     this.metadata = {
       ...metadata,
-      id: this.botDescriptor.id,
-      name: this.botDescriptor.name,
-      ...(this.botDescriptor.strategyId ? { strategyId } : {}),
+      id,
+      name,
+      ...(strategyId ? { strategyId } : {}),
     };
   }
 
   async decide(observation: Observation): Promise<Decision> {
     if (this.isWorkerStopped)
       return { action: null, error: "Bot worker is disabled", disabled: true };
+    if (this.pendingWorkerRequest) return { action: null, error: workerBusyMessage };
 
     const workerResponse = await this.sendWorkerRequest(
-      { type: "act", observation },
+      { type: "act", observation: this.prepareObservation(observation) },
       this.decisionTimeoutMs,
     );
     if (workerResponse.type === "decision") return { action: workerResponse.action };
@@ -128,10 +139,20 @@ export class WorkerBot implements BotController {
     return { action: null, error: "Unexpected worker response during decision", disabled: true };
   }
 
+  private prepareObservation(observation: Observation): WorkerObservation {
+    const terrain = getObservationTerrain(observation.map);
+    const workerHasTerrain = terrain && terrain === this.sentTerrain;
+    this.sentTerrain = terrain;
+
+    // A failed send disables the worker, so a later turn can only reuse a delivered map.
+    return workerHasTerrain ? { ...observation, map: undefined } : observation;
+  }
+
   dispose() {
     if (this.isWorkerStopped) return;
 
     this.isWorkerStopped = true;
+    this.sentTerrain = undefined;
     this.resolvePendingRequest({ type: "error", error: "Bot worker stopped", disabled: true });
     void this.worker.terminate();
   }

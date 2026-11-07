@@ -51,7 +51,23 @@ export class Playback {
   }
 
   get isReplay(): boolean {
-    return this.playbackSession.source.kind === "recorded" || this.playbackTimeline.hasNextFrame;
+    const source = this.playbackSession.source.kind;
+    return source === "recorded" || source === "stopped" || this.playbackTimeline.hasNextFrame;
+  }
+
+  get isStopping(): boolean {
+    return this.playbackSession.isStopping;
+  }
+
+  get isStopped(): boolean {
+    return this.playbackSession.source.kind === "stopped" && !this.finalSnapshot;
+  }
+
+  get canStop(): boolean {
+    const live = this.playbackSession.source.kind === "live";
+    const finished = !!this.finalSnapshot;
+    const selecting = this.playbackSession.isSelecting;
+    return live && !finished && !selecting;
   }
 
   get canPlay(): boolean {
@@ -89,6 +105,12 @@ export class Playback {
 
   load(replay: Replay): Promise<void> {
     return this.pauseAndSelectSource(() => this.playbackSession.selectRecordedReplay(replay));
+  }
+
+  stop(): Promise<void> {
+    if (!this.canStop) return Promise.resolve();
+
+    return this.pauseAndSelectSource(() => this.playbackSession.stopLiveSession());
   }
 
   async export(): Promise<Replay> {
@@ -182,7 +204,7 @@ export class Playback {
   private resetTimelineForSource(source: SelectedPlaybackSource): void {
     if (source.kind === "live")
       this.playbackTimeline.resetToInitialSnapshot(source.initialSnapshot);
-    else this.playbackTimeline.loadRecordedReplay(source.replay);
+    else if (source.kind === "recorded") this.playbackTimeline.loadRecordedReplay(source.replay);
 
     this.notifyStateListeners();
   }

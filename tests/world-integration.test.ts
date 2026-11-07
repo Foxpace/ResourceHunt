@@ -15,7 +15,12 @@ import {
   removeLegacyWorld,
   createSabotageMatch,
 } from "./helpers/world-integration.ts";
-import { advanceUntil, createObservationFromSnapshot } from "./helpers/game-fixtures.ts";
+import {
+  advanceGame,
+  advanceUntil,
+  createBotController,
+  createObservationFromSnapshot,
+} from "./helpers/game-fixtures.ts";
 
 for (const [biome, expectedKind] of [
   ["riverlands", "storm"],
@@ -67,6 +72,38 @@ test("new matches enable the competitive world by default", (context) => {
   assert.equal(snapshot.config.cargoTraps, true);
   assert.equal(snapshot.world.drones.length, 2);
   assert.equal(snapshot.world.caches.length, 2);
+});
+
+test("the first bot decision sees the guardian's first patrol move", async (context) => {
+  // Given
+  let nextGuardianMoveTick: number | undefined;
+  const bot = createBotController("test", (state) => {
+    nextGuardianMoveTick = state.world.caches[0]?.nextGuardianMoveTick;
+    return { type: "skip" };
+  });
+  const game = createWorldGame(context, { bots: [bot] });
+
+  // When
+  await game.step();
+
+  // Then
+  assert.equal(nextGuardianMoveTick, 2);
+});
+
+test("the bot decision on tick six sees the scavenger's first patrol move", async (context) => {
+  // Given
+  let nextDroneMoveTick: number | undefined;
+  const bot = createBotController("test", (state) => {
+    nextDroneMoveTick = state.world.drones[0]?.nextMoveTick;
+    return { type: "skip" };
+  });
+  const game = createWorldGame(context, { bots: [bot] });
+
+  // When
+  await advanceGame(game, 7);
+
+  // Then
+  assert.equal(nextDroneMoveTick, 9);
 });
 
 for (const [hotspotCount, guardianCount] of [

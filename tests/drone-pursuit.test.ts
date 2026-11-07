@@ -33,6 +33,38 @@ test("a waiting drone steals cargo from a bot on its tile without moving", () =>
   assert.equal(drone.nextMoveTick, 99);
 });
 
+test("a drone steals from the loaded bot when an empty bot shares its tile", () => {
+  // Given
+  const scenario = new WorldScenario();
+  scenario.attacker.inventory = [];
+  scenario.attacker.position = scenario.defender.position;
+  const drone = createDrone({ position: { x: 8, y: 6 } });
+  scenario.state.drones = [drone];
+
+  // When
+  scenario.advanceTo(10);
+
+  // Then
+  assert.deepEqual(drone.inventory, ["crystal"]);
+});
+
+test("guard then move protects against the drone phase after crossing", () => {
+  // Given
+  const scenario = new WorldScenario();
+  const drone = createDrone({ nextMoveTick: 99 });
+  scenario.state.drones = [drone];
+  scenario.advanceTo(10);
+  scenario.act({ type: "guard" }, "defender");
+  scenario.advanceTo(11);
+  scenario.moveDefender(drone.position);
+
+  // When
+  scenario.advanceTo(12);
+
+  // Then
+  assert.equal(scenario.defender.lost, 0);
+});
+
 test("a waiting drone respects the attack cooldown", () => {
   // Given
   const scenario = new WorldScenario();

@@ -41,7 +41,6 @@ export class WorldScenario {
   advanceTo(tick: number): void {
     this.context.tick = tick;
     this.controller.prepareTick(this.context);
-    this.controller.finishTick(this.context);
   }
 
   moveDefender(position: Position): void {

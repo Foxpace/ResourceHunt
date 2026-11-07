@@ -23,10 +23,15 @@ export class TournamentView {
   private scores = element<HTMLElement>("#tournament-scores");
   private roundResults = element<HTMLElement>("#tournament-round-results");
   private roundTrack = element<HTMLElement>("#round-track");
+  private stopButton = element<HTMLButtonElement>("#stop-tournament");
 
   constructor(readonly tournament: Tournament) {
     this.biome.onchange = () => this.renderRound();
     this.tick.oninput = () => this.renderScores();
+    this.stopButton.onclick = () => {
+      this.stopButton.disabled = true;
+      this.tournament.stop();
+    };
   }
 
   run(request: CreateGameRequest, options: TournamentOptions, onChange: () => void): Promise<void> {
@@ -57,6 +62,8 @@ export class TournamentView {
 
     const { rounds, winners } = this.tournament;
     this.progress.textContent = this.describeProgress(this.options.winTarget);
+    this.stopButton.hidden = !this.tournament.running;
+    this.stopButton.disabled = this.tournament.stopped;
     element("#tournament-empty").hidden = true;
     element("#round-explorer").hidden = !rounds.length;
     this.roundTrack.innerHTML = this.renderRoundTrack();
@@ -79,9 +86,9 @@ export class TournamentView {
       this.biome.add(new Option(`Round ${index + 1} · ${BIOMES[biome].name}`, String(index)));
     }
     this.biome.disabled = !rounds.length;
-    const changed = this.selectedRound !== this.displayedRound;
-    const empty = !rounds.length;
-    if (changed || empty) this.renderRound();
+    const selectionChanged = this.selectedRound !== this.displayedRound;
+    const noCompletedRounds = rounds.length === 0;
+    if (selectionChanged || noCompletedRounds) this.renderRound();
   }
 
   private renderRoundTrack(): string {
@@ -104,8 +111,12 @@ export class TournamentView {
   }
 
   private describeProgress(target: number): string {
-    const { rounds, currentBiome, winners, error } = this.tournament;
+    const { rounds, currentBiome, winners, error, stopped } = this.tournament;
     if (error) return error;
+    if (stopped) {
+      const count = rounds.length;
+      return `Tournament stopped · ${count} ${count === 1 ? "round" : "rounds"} completed`;
+    }
     if (winners.length)
       return `${winners.join(", ")} reached ${target} ${target === 1 ? "win" : "wins"} · ${rounds.length} rounds played`;
     if (currentBiome)

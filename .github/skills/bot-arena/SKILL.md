@@ -10,24 +10,25 @@ Prove things with the game itself. The game CLI is the test suite: a bot that ru
 ## The runner (saves evidence)
 
 ```sh
-node .github/bot-workflow/run.mjs <stage> <bot-id> <operation> [biome] [--vs id,id,...]
+node .github/bot-workflow/run.mjs <stage> <bot-id> <operation> [biome] [--vs id,id,...] [--label name]
 ```
 
-| Operation    | What it does                                                                     | Stages              | Time  |
-| ------------ | -------------------------------------------------------------------------------- | ------------------- | ----- |
-| `status`     | Which artifacts are missing, draft, or approved                                  | all                 | 1 s   |
-| `baseline`   | Four copies of `nearest` on every biome. Already measured, see below             | all                 | ~40 s |
-| `bench`      | The team bot vs opponents on the 8 practice biomes                               | plan, build         | ~45 s |
-| `play`       | One match saved as a replay in `results/`                                        | plan, build, review | ~3 s  |
-| `check`      | Discovery of the team's bots, types, structure rules, formatting                 | build, review       | ~15 s |
-| `format`     | Formats `bots/<id>.ts`, `bots/<id>-*.ts`, and `bots/<id>/`                       | build, review       | 2 s   |
-| `holdout`    | `bench` on unseen maps: the final proof, once at the end of Build                | build               | ~80 s |
-| `tournament` | Three tournaments (seeds `handin-1..3`, first to 3 round wins) with a summary    | review              | ~20 s |
-| `pack`       | Needs an approved REVIEW.md. Deletes practice bots, runs `check`, writes the zip | review              | ~15 s |
+| Operation    | What it does                                                                  | Stages              | Time  |
+| ------------ | ----------------------------------------------------------------------------- | ------------------- | ----- |
+| `status`     | Which artifacts are missing, draft, or approved                               | all                 | 1 s   |
+| `baseline`   | Four copies of `nearest` on every biome. Already measured, see below          | all                 | ~40 s |
+| `bench`      | The team bot vs opponents on the 8 practice biomes                            | plan, build         | ~45 s |
+| `play`       | One match saved as a replay in `results/`                                     | plan, build, review | ~3 s  |
+| `check`      | Bot discovery, types, and structure rules, with advisory Prettier output      | build, review       | ~15 s |
+| `format`     | Formats the team bot, its practice bots, and its team folder                  | build, review       | 2 s   |
+| `holdout`    | `bench` on unseen maps: the final proof, once at the end of Build             | build               | ~80 s |
+| `tournament` | Three tournaments (seeds `handin-1..3`, first to 3 round wins) with a summary | review              | ~20 s |
+| `pack`       | Needs an approved REVIEW.md. Runs the checks and writes the ZIP               | review              | ~15 s |
 
 - `--vs` replaces the default opponents (`nearest,nearest,nearest`). The team bot is always first. Up to 14 opponents; repeat an ID for copies. Time grows with lineup size.
-- A biome argument focuses one map type and doubles its matches. Biomes: riverlands, valley, desert, moon, volcanic, archipelago, tundra, forest.
-- Evidence lands in `bots/<id>/_workflow/evidence/<stage>-<operation>[-biome][-vs-...].txt`. Cite these paths in artifacts.
+- A biome argument focuses a benchmark and doubles its matches. In tournaments it selects the first biome in the rotation. Biomes are riverlands, valley, desert, moon, volcanic, archipelago, tundra, and forest.
+- Evidence goes under `bots/<id>/_workflow/evidence/`. Benchmarks and tournaments save a text report and companion JSON. Use different labels such as `--label before` and `--label bank-earlier` to keep both reports when the lineup and biome stay the same. Labels do not change the seeds.
+- Benchmark JSON has an overall `summary` and a `runs` entry per biome. The entry's `participants` maps instance IDs to strategy IDs. Each match in `data.results` has the exact seed, starting order, final stats, and a `scores` array. Tick zero comes first and the columns follow that match's `botOrder`.
 
 ## Lineups that answer questions
 
@@ -50,9 +51,9 @@ The terminal is open. For quick questions, run the game directly:
 
 ```sh
 yarn bots
-yarn --silent bench --bots comet,comet-greedy,nearest,nearest --matches 8 --biome forest --seed dev-x --json
-yarn --silent play --bots comet,nearest,nearest,nearest --biome moon --seed dev-y --replay results/comet-moon.replay.json
-yarn --silent tournament --bots comet,comet-thief,comet-greedy,nearest --wins 3
+yarn bench --bots comet,comet-greedy,nearest,nearest --matches 8 --biome forest --seed dev-x --json
+yarn play --bots comet,nearest,nearest,nearest --biome moon --seed dev-y --replay results/comet-moon.replay.json
+yarn tournament --bots comet,comet-thief,comet-greedy,nearest --wins 3
 yarn inspect --input results/comet-moon.replay.json --tick 120 --bot comet --map
 ```
 
@@ -63,19 +64,22 @@ yarn inspect --input results/comet-moon.replay.json --tick 120 --bot comet --map
 
 ## Reading a table
 
-- `errors` must be 0. Any error or timeout is a defect, not noise.
-- `mean` is the average banked score across biomes; also name the weakest biome.
-- Four matches per biome is a quick signal. When two versions are close, rerun on the deciding biome (double matches) before choosing.
+- Treat any error or timeout as a defect. Check rival errors too when interpreting wins.
+- `mean` averages banked score across completed biomes. The details table shows score range, average rank, and the mean score difference against the highest-scoring rival in each match. Wins and shared firsts are separate counts. Copies of a strategy share one summary row.
+- Check captures, theft, losses, and unbanked cargo against the intended strategy. Use match counters or a replay to check a suspected explanation.
+- Use halfway points and first bank tick to check whether the bot starts banking earlier. First bank tick averages only starts that scored, so read it with the scoreless count. Compare points per tile and per deposit alongside total points and wins. The JSON includes median and spread of scores, the first-place rate including ties, and totals for every recorded game counter.
+- Report how many maps were tested. Four matches with a four-bot lineup rotate through four bases on one map. When two versions are close, run the deciding biome on its own to include another map.
 - Fixed seeds give the same result every time. Do not rerun hoping for a better number.
 
 ## Telling the team
 
-Translate every table into one or two plain lines: "Banks about 120 per match, a quarter more than the simple bot. Weakest on forest. No crashes." Never paste tables or operation names into chat; they go into the artifact with their evidence path.
+Start with the result that affects the team's next choice. Include the opponent lineup and sample size, and use a small table if several biomes or versions matter. Explain the likely trade-off in plain words and cite the evidence in the artifact.
 
 ## Hand-in
 
-- `tournament` puts the team bot first, then every `bots/<id>-*.ts` practice bot, then two `nearest`; `--vs` replaces the opponents. It reports place, round wins, score, and errors per tournament, then "won X of 3, average place Y of N".
-- `pack` refuses to run until REVIEW.md is approved. It then deletes `bots/<id>-*.ts`, reruns `check`, and zips `bots/<id>.ts` and `bots/<id>/` into `results/<id>-handin.zip`. Ask the orchestrator before running it; the deleted practice bots are gone.
+- `tournament` puts the team bot first, then its practice bots and two copies of `nearest`. Use `--vs` to replace the opponents. The report shows every bot's final points, place, and round wins. It also tracks the team bot's points and cumulative wins by round. A shared first earns each leader a round win, and bots that reach the target together share the tournament win.
+- Tournament JSON has one entry per seed. Use `progression` for each bot's round points, rank, cumulative points, and cumulative wins. Use `data.rounds` for the exact seed, starting order, per-tick scores, and final game counters. Cite the seed and round when a result supports the verdict.
+- `pack` requires an approved REVIEW.md. It runs the checks and zips `bots/<id>.ts` and `bots/<id>/` into `results/<id>-handin.zip`. Practice bots stay on disk. After sharing the ZIP, offer optional cleanup in chat for the team's verified practice bots. Only remove exact paths the orchestrator explicitly approves.
 
 ## Replays
 

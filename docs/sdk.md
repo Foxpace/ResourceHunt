@@ -12,6 +12,7 @@ import {
   RESOURCES,
   TERRAIN_COST,
   distanceField,
+  findNearestRoute,
   findPath,
   inventoryWeight,
   positionKey,
@@ -21,6 +22,7 @@ import {
   getInventoryStats,
   canGrab,
   planTrip,
+  findBestTrip,
   getOpponentArrivalTimes,
   getBankingSites,
   getNearestBank,
@@ -60,28 +62,30 @@ Examples below assume they run inside `act(state: Observation)`, unless they def
 
 ## Quick reference
 
-| Export                                                                               | Use                                         |
-| ------------------------------------------------------------------------------------ | ------------------------------------------- |
-| [`getMoveOptions(state)`](#getmoveoptionsstate)                                      | Terrain and cost for all four moves         |
-| [`getInventoryStats(state)`](#getinventorystatsstate)                                | Carried weight, free capacity, and value    |
-| [`canGrab(state)`](#cangrabstate)                                                    | Whether grabbing here would succeed         |
-| [`planTrip(state, pile, units?)`](#plantripstate-pile-units)                         | Travel, collection, return, and feasibility |
-| [`getOpponentArrivalTimes(state, position)`](#getopponentarrivaltimesstate-position) | Earliest rival arrival and next action      |
-| [`terrainCost(map, position)`](#terraincostmap-position)                             | Turns needed to enter a tile                |
-| [`DIRECTIONS`](#directions)                                                          | Coordinate offsets for N, W, E, S           |
-| [`TERRAIN_COST`](#terrain_cost)                                                      | Cost lookup by terrain name                 |
-| [`findPath(map, from, to)`](#findpathmap-from-to)                                    | Cheapest route to one destination           |
-| [`distanceField(map, from, stopAt?)`](#distancefieldmap-from-stopat)                 | Routes to many destinations in one search   |
-| [`positionKey(position)`](#positionkeyposition)                                      | Convert coordinates to a lookup key         |
-| [`samePosition(a, b)`](#samepositiona-b)                                             | Compare coordinates                         |
-| [`inventoryWeight(items)`](#inventoryweightitems)                                    | Total carried weight                        |
-| [`RESOURCES`](#resources)                                                            | Resource values, weights, and colors        |
-| [`getBankingSites(state)`](#getbankingsitesstate-and-getnearestbankstate-from)       | Owned bases and outposts                    |
-| [`getNearestBank(state, from?)`](#getbankingsitesstate-and-getnearestbankstate-from) | Cheapest route to an owned bank             |
-| [`canCapture(state)`](#cancapturestate)                                              | Whether capture can advance here            |
-| [`getStealTargets(state)`](#getstealtargetsstate-and-canstealstate-targetid)         | Eligible cargo theft targets                |
-| [`canSteal(state, targetId)`](#getstealtargetsstate-and-canstealstate-targetid)      | Whether theft from one rival can succeed    |
-| `THEFT_PROTECTION_TICKS`                                                             | Two-tick theft protection window            |
+| Export                                                                               | Use                                           |
+| ------------------------------------------------------------------------------------ | --------------------------------------------- |
+| [`getMoveOptions(state)`](#getmoveoptionsstate)                                      | Terrain and cost for all four moves           |
+| [`getInventoryStats(state)`](#getinventorystatsstate)                                | Carried weight, free capacity, and value      |
+| [`canGrab(state)`](#cangrabstate)                                                    | Whether grabbing here would succeed           |
+| [`planTrip(state, pile, units?)`](#plantripstate-pile-units)                         | Travel, collection, return, and feasibility   |
+| [`findBestTrip(state, candidates, units?)`](#findbesttripstate-candidates-units)     | Best feasible trip by resource value per turn |
+| [`getOpponentArrivalTimes(state, position)`](#getopponentarrivaltimesstate-position) | Earliest rival arrival and next action        |
+| [`terrainCost(map, position)`](#terraincostmap-position)                             | Turns needed to enter a tile                  |
+| [`DIRECTIONS`](#directions)                                                          | Coordinate offsets for N, W, E, S             |
+| [`TERRAIN_COST`](#terrain_cost)                                                      | Cost lookup by terrain name                   |
+| [`findPath(map, from, to)`](#findpathmap-from-to)                                    | Cheapest route to one destination             |
+| [`distanceField(map, from, stopAt?)`](#distancefieldmap-from-stopat)                 | Routes to many destinations in one search     |
+| [`findNearestRoute(map, from, targets)`](#findnearestroutemap-from-targets)          | Cheapest reachable target and its route       |
+| [`positionKey(position)`](#positionkeyposition)                                      | Convert coordinates to a lookup key           |
+| [`samePosition(a, b)`](#samepositiona-b)                                             | Compare coordinates                           |
+| [`inventoryWeight(items)`](#inventoryweightitems)                                    | Total carried weight                          |
+| [`RESOURCES`](#resources)                                                            | Resource values, weights, and colors          |
+| [`getBankingSites(state)`](#getbankingsitesstate-and-getnearestbankstate-from)       | Owned bases and outposts                      |
+| [`getNearestBank(state, from?)`](#getbankingsitesstate-and-getnearestbankstate-from) | Cheapest route to an owned bank               |
+| [`canCapture(state)`](#cancapturestate)                                              | Whether capture can advance here              |
+| [`getStealTargets(state)`](#getstealtargetsstate-and-canstealstate-targetid)         | Eligible cargo theft targets                  |
+| [`canSteal(state, targetId)`](#getstealtargetsstate-and-canstealstate-targetid)      | Whether theft from one rival can succeed      |
+| `THEFT_PROTECTION_TICKS`                                                             | Two-tick theft protection window              |
 
 ## Biomes
 
@@ -112,7 +116,7 @@ Return one `Action` per decision:
 | `{ type: "repair", targetId: "outpost-1" }`    | Restore a nearby owned depot and cancel sabotage.                                                           |
 | `{ type: "deployTrap" }`                       | Spend one ore to place a visible trap on your tile.                                                         |
 | `{ type: "clearTrap", targetId: "trap-10-0" }` | Remove a trap on your tile or an adjacent tile.                                                             |
-| `{ type: "guard" }`                            | Protect cargo and prevent threat delays through the following tick.                                         |
+| `{ type: "guard" }`                            | Protect through the following tick and the next two scavenger and guardian phases.                          |
 | `{ type: "strike", targetId: "drone-1" }`      | Deal one damage to an adjacent drone or cache guardian.                                                     |
 | `{ type: "lootCache", targetId: "cache-1" }`   | Take one fitting item while on a defeated guardian's cache.                                                 |
 
@@ -269,9 +273,17 @@ if (pile) {
 return { type: "home" } satisfies Action;
 ```
 
-Each call runs two pathfinding searches. For large maps, use `distanceField` to shortlist targets before planning full trips, or increase the decision timeout.
+Each call checks an outbound route and a return route. On large maps, use `distanceField` to shortlist targets before planning full trips.
+
+### `findBestTrip(state, candidates, units?)`
+
+Compares a shortlist of piles and returns the feasible `TripPlan` with the highest `resourceValue / totalTurns`. Ties favor the first candidate. The result is `null` when no candidate is feasible. All candidates use the same requested unit count, which defaults to `1`.
+
+Use this helper when you only need the winning plan. It shares the outbound search and compares return costs before building the winning routes. Use `planTrip` to inspect why a specific trip failed.
 
 ### `getOpponentArrivalTimes(state, position)`
+
+Pass `{ routes: false }` as the third argument to get arrival and ready ticks without route steps. The SDK uses one search from the destination to estimate every opponent's travel cost.
 
 Returns one `OpponentArrivalTime` per other bot, assuming each immediately follows a cheapest route to the target.
 
@@ -421,11 +433,15 @@ if (target) {
 }
 ```
 
+### `findNearestRoute(map, from, targets)`
+
+Returns `{ target, route }` for the reachable target with the lowest travel cost, or `null` if no target is reachable. Equal costs favor the earliest entry in `targets`. Use it when you need only the best route from a list of positions.
+
 ### `distanceField(map, from, stopAt?)`
 
 Returns a `Map<string, { cost: number; steps: Direction[] }>` from one pathfinding search. Keys come from `positionKey`. Unreachable positions have no entry. The origin has cost `0` and no steps.
 
-Use it when comparing many resource targets:
+Use it when you need routes or costs for many resource targets:
 
 ```ts
 const routes = distanceField(state.map, state.self.position);
@@ -505,7 +521,7 @@ Carried value only becomes score when deposited at your base or an owned outpost
 
 `Bot` requires `act(state: Observation): Action | Promise<Action>`. The same class instance persists throughout a match, and every new match creates a fresh instance. Async decisions have the same timeout as synchronous decisions.
 
-Default-export the class and give it static `BotMetadata` with `id`, `name`, and `description`. IDs must contain 1 to 48 lowercase letters, digits, or hyphens and start with a letter or digit. Names must contain 1 to 60 characters and cannot be blank. Descriptions may contain up to 300 characters.
+Default-export the class and give it static `BotMetadata` as an object literal with string literals for `id`, `name`, and `description`. IDs must contain 1 to 48 lowercase letters, digits, or hyphens and start with a letter or digit. Names must contain 1 to 60 characters and cannot be blank. Descriptions may contain up to 300 characters.
 
 `BotContext` provides `random(): number`, returning a seeded value in `[0, 1)`. Accept it in an optional constructor:
 

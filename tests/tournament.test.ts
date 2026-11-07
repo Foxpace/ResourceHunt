@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { once } from "node:events";
+import { test, type TestContext } from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
+import { BroadcastChannel } from "node:worker_threads";
 import { createMatchStatistics } from "../src/engine/match-statistics.ts";
 import { DEFAULT_CONFIG, type Standing } from "../src/engine/types.ts";
 import { createGameApi } from "../src/http/game-api.ts";
@@ -11,6 +14,12 @@ import {
 } from "../src/competition/tournament.ts";
 import { defaultBadgeOptions, selectAwards } from "../src/competition/awards.ts";
 import { renderResults } from "../src/web/view/results.ts";
+import { HttpGameClient } from "../src/web/data/game-client.ts";
+import { startServer } from "../src/server.ts";
+import { discoverBots, selectBots } from "../src/runtime/bots.ts";
+import { runTournamentRound } from "../src/runtime/tournament-round.ts";
+import { deferred } from "./helpers/deferred.ts";
+import { createBotDirectory } from "./helpers/runtime-fixtures.ts";
 
 test("tournament wins outrank points in totals, podium, and standings", () => {
   // Given
@@ -83,6 +92,113 @@ function rankingStanding(input: { score: number; index: number; scores: number[]
     stolen: 0,
     lost: 0,
   };
+}
+
+test("stopping a tournament keeps completed rounds and ignores a late result", async () => {
+  // Given
+  const completed = rankingRounds()[0]!;
+  const pending = deferred<TournamentRound>();
+  const tournament = new Tournament({
+    tournamentRound: async ({ roundIndex }) => (roundIndex === 0 ? completed : pending.promise),
+  });
+  const running = tournament.run(tournamentRequest(1), tournamentOptions, () => {});
+  await Promise.resolve();
+
+  // When
+  tournament.stop();
+  pending.resolve(completed);
+  await running;
+
+  // Then
+  assert.deepEqual(tournament.rounds, [completed]);
+  assert.equal(tournament.stopped, true);
+});
+
+test("the round runner cancels a game still starting", async () => {
+  // Given
+  const bots = selectBots(await discoverBots(), ["nearest"]);
+  const abort = new AbortController();
+  const reason = new Error("Canceled while starting");
+
+  // When
+  const round = runTournamentRound(bots, tournamentRequest(1), abort.signal);
+  abort.abort(reason);
+
+  // Then
+  await assert.rejects(round, (error) => error === reason);
+});
+
+test("the round runner cancels an in-flight bot decision", { timeout: 10000 }, async (context) => {
+  // Given
+  const { bots, started } = await createBlockedRound(context);
+  const abort = new AbortController();
+  context.after(() => abort.abort());
+  const round = tournamentRequest(1);
+  round.config.decisionTimeoutMs = 5000;
+  const reason = new Error("Canceled during a decision");
+
+  // When
+  const running = runTournamentRound(bots, round, abort.signal);
+  await Promise.race([started, running]);
+  abort.abort(reason);
+
+  // Then
+  const canceled = Promise.race([running, delay(2000, undefined, { ref: false })]);
+  await assert.rejects(canceled, (error) => error === reason);
+});
+
+async function createBlockedRound(context: TestContext) {
+  const channelName = crypto.randomUUID();
+  const channel = new BroadcastChannel(channelName);
+  context.after(() => channel.close());
+  const started = once(channel, "message");
+  const directory = await createBotDirectory(context, {
+    "blocked.ts": `
+      import { BroadcastChannel } from "node:worker_threads";
+      export default class {
+        static metadata = { id: "blocked", name: "Blocked", description: "Test" };
+        act() {
+          const channel = new BroadcastChannel(${JSON.stringify(channelName)});
+          channel.postMessage("started");
+          while (true) {}
+        }
+      }
+    `,
+  });
+
+  const { bots } = await discoverBots(directory);
+  return { bots, started };
+}
+
+test("canceling an HTTP round frees the tournament slot for the next request", async (context) => {
+  // Given
+  const app = await startServer(0);
+  context.after(() => app.dispose());
+  const client = new HttpGameClient(`http://127.0.0.1:${app.port}`);
+  const controller = new AbortController();
+  const arrived = once(app.server, "request");
+  const active = client.tournamentRound(tournamentRequest(1000), controller.signal);
+  const canceled = assert.rejects(active, { name: "AbortError" });
+  await arrived;
+  await assert.rejects(requestShortRound(client), /already running/);
+
+  // When
+  controller.abort();
+  await canceled;
+  const next = await requestShortRound(client);
+
+  // Then
+  assert.equal(next.result.ticks, 1);
+});
+
+function requestShortRound(client: HttpGameClient): Promise<TournamentRound> {
+  return client.tournamentRound(tournamentRequest(1), new AbortController().signal);
+}
+
+const tournamentOptions = { winTarget: 3, badges: defaultBadgeOptions };
+
+function tournamentRequest(ticks: number) {
+  return { config: { ...DEFAULT_CONFIG, ticks }, botIds: ["nearest", "nearest"], roundIndex: 0 };
 }
 
 test("a tournament stops at the win target and keeps score history for each replica", async (context) => {

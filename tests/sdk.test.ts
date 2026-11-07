@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   canGrab,
+  findBestTrip,
   getInventoryStats,
   getMoveOptions,
   getOpponentArrivalTimes,
@@ -236,6 +237,62 @@ test("trip planning rejects disabled bots", () => {
   assert.ok(plan.reasons.includes("disabled"));
 });
 
+test("batch trip planning picks the best feasible value per turn", () => {
+  // Given
+  const { observation, pile } = createWeightedTripObservation();
+  const ore = { x: 1, y: 0, kind: "ore", amount: 2 } as const;
+  const missing = { ...pile, x: 0 };
+  observation.resources.push(ore);
+
+  // When
+  const best = findBestTrip(observation, [ore, missing, pile]);
+
+  // Then
+  assert.deepEqual(best, planTrip(observation, pile));
+});
+
+test("batch trip planning keeps candidate order when feasible rates tie", () => {
+  // Given
+  const first = { x: 2, y: 0, kind: "crystal", amount: 1 } as const;
+  const second = { ...first, x: 0 };
+  const self = createBotState({ position: { x: 1, y: 0 }, base: { x: 1, y: 0 } });
+  const map = createMap([["grass", "grass", "grass"]]);
+  const observation = createObservation({ self, map, resources: [second, first] });
+
+  // When
+  const best = findBestTrip(observation, [first, second]);
+
+  // Then
+  assert.deepEqual(best, planTrip(observation, first));
+});
+
+test("batch trip planning can unload at a bank on the outbound route", () => {
+  // Given
+  const { observation, pile } = createWeightedTripObservation();
+  observation.remainingTicks = 50;
+  observation.self.inventory = ["relic"];
+  observation.self.base = { x: 1, y: 0 };
+
+  // When
+  const best = findBestTrip(observation, [pile, { ...pile, x: 0 }], 2);
+
+  // Then
+  assert.deepEqual(best, planTrip(observation, pile, 2));
+});
+
+test("batch trip planning returns through the closest owned bank", () => {
+  // Given
+  const { observation, pile } = createWeightedTripObservation();
+  const depot = { id: "depot", x: 1, y: 0, capturingBotId: null, captureProgress: 0 };
+  observation.outposts.push({ ...depot, ownerId: observation.self.id });
+
+  // When
+  const best = findBestTrip(observation, [pile, { ...pile, x: 0 }]);
+
+  // Then
+  assert.equal(best?.bank?.id, depot.id);
+});
+
 for (const tick of [0, 1]) {
   test(`opponent arrival estimates account for terrain and initiative on tick ${tick}`, () => {
     // Given
@@ -279,6 +336,27 @@ test("opponents cannot reach blocked targets", () => {
   // Then
   assert.ok(estimates.every((estimate) => estimate.route === null));
   assert.ok(estimates.every((estimate) => estimate.readyTick === Infinity));
+});
+
+test("opponent timing without routes agrees with the full estimates", () => {
+  // Given
+  const observation = createOpponentObservation();
+  const target = { x: 2, y: 0 };
+  const full = getOpponentArrivalTimes(observation, target);
+
+  // When
+  const timings = getOpponentArrivalTimes(observation, target, { routes: false });
+
+  // Then
+  assert.deepEqual(
+    timings,
+    full.map(({ botId, arrivalTick, readyTick, turnOrder }) => ({
+      botId,
+      arrivalTick,
+      readyTick,
+      turnOrder,
+    })),
+  );
 });
 
 test("a planned resource trip banks its predicted value on its predicted tick", async (context) => {

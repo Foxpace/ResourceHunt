@@ -4,6 +4,7 @@ import { placeBases } from "./map-layout.ts";
 import { nearStart } from "./maps/starting-areas.ts";
 import { randomFromSeed } from "./random.ts";
 import { positionKey, samePosition, terrainCost } from "./pathfinding.ts";
+import { balanceOpeningResources } from "./maps/opening-resources.ts";
 import { generateBiome } from "./maps/biome-generator.ts";
 import { placeCompetitionSites, stockHotspots } from "./maps/competition-map.ts";
 import {
@@ -39,6 +40,7 @@ export function generateMap(
   if (config.resourceDensity > 0) stockOpeningCells(resources, openingCells);
 
   stockHotspots(setup, layout, resources);
+  balanceOpeningResources(setup, layout, resources);
 
   return { map, bases, resources, hotspots, outposts };
 }

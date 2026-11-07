@@ -12,26 +12,26 @@
     "tournament": "node --import tsx src/cli.ts tournament",
     "inspect": "node --import tsx src/cli.ts inspect",
     "bots": "node --import tsx src/cli.ts bots",
-    "test": "node --import tsx --test tests/*.test.ts",
+    "test": "node --import tsx --test tests/*.test.ts .github/bot-workflow/*.test.mjs",
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format": "node scripts/format.mjs --write .",
+    "format:check": "node scripts/format.mjs --check .",
     "check": "yarn format:check && yarn structure:check && yarn typecheck && yarn test",
     "build": "node --import tsx src/build.ts",
     "structure:check": "node scripts/check-structure.mjs"
   },
   "devDependencies": {
-    "prettier": "3.9.10",
-    "typescript": "^5.9.0",
-    "@types/node": "^22.18.0"
+    "@types/node": "24.19.2",
+    "prettier": "3.8.3"
   },
-  "packageManager": "yarn@1.22.22",
+  "packageManager": "yarn@4.5.3",
   "engines": {
-    "node": ">=22.18.0",
-    "yarn": ">=1.22.22"
+    "node": ">=23.11.1",
+    "yarn": ">=4.5.3"
   },
   "dependencies": {
-    "esbuild": "^0.28.0",
-    "tsx": "^4.20.0"
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
   }
 }

@@ -1,7 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findPrettier, PRETTIER_CONFIG_ARGS, PRETTIER_SKIPPED } from "../../scripts/format.mjs";
 import {
   APPROVERS,
   BIOMES,
@@ -11,7 +13,16 @@ import {
   checkInputs,
   isApproved,
   readArtifact,
+  teamOf,
 } from "./guard.mjs";
+import {
+  describeTournament,
+  mean,
+  participantStrategies,
+  sum,
+  summarizePerformance,
+  summarizeTournamentRuns,
+} from "./performance.mjs";
 import { listFiles, writeZip } from "./zip.mjs";
 
 const EVERY_STAGE = Object.keys(STAGES);
@@ -31,16 +42,31 @@ const BOT_ID = /^[a-z0-9][a-z0-9-]{0,47}$/;
 const MAX_LINEUP = 15;
 const OPPONENTS = ["nearest", "nearest", "nearest"];
 const TOURNAMENT_SEEDS = ["handin-1", "handin-2", "handin-3"];
+const TOURNAMENT_WIN_TARGET = 3;
 const PROFILES = {
   baseline: { seed: "baseline", rounds: 1 },
   bench: { seed: "dev", rounds: 1 },
   holdout: { seed: "holdout", rounds: 2 },
 };
+const BIOME_DETAIL_COLUMNS = [
+  "biome",
+  "maps",
+  "matches",
+  "avg rank",
+  "wins",
+  "ties",
+  "range",
+  "margin",
+  "captures",
+  "stolen",
+  "lost",
+  "unbanked",
+  "errors",
+];
 const USAGE =
-  "Usage: node .github/bot-workflow/run.mjs <stage> <bot-id> <operation> [biome] [--vs id,id,...]";
+  "Usage: node .github/bot-workflow/run.mjs <stage> <bot-id> <operation> [biome] [--vs id,id,...] [--label name]";
 const TOOLS = {
   typescript: "node_modules/typescript/bin/tsc",
-  prettier: "node_modules/prettier/bin/prettier.cjs",
 };
 
 function execute(context, args) {
@@ -55,7 +81,7 @@ function execute(context, args) {
   return {
     status: result.status ?? 1,
     stdout: result.stdout ?? "",
-    stderr: result.stderr + failure,
+    stderr: (result.stderr ?? "") + failure,
   };
 }
 
@@ -66,68 +92,173 @@ function report(context, line = "") {
 
 /** The team's bot files: the final bot, its local practice bots, and its folder. */
 function familyPaths(context) {
-  const ownsFile = (name) =>
-    name === `${context.bot}.ts` || (name.startsWith(`${context.bot}-`) && name.endsWith(".ts"));
-  const names = readdirSync(resolve(context.root, "bots"));
+  const handIn = handInPaths(context);
+  const entries = readdirSync(resolve(context.root, "bots"), { withFileTypes: true });
 
-  return names
-    .filter((name) => ownsFile(name) || name === context.bot)
-    .map((name) => `bots/${name}`);
+  return entries.flatMap((entry) => {
+    const path = `bots/${entry.name}`;
+    if (handIn.includes(path)) return [path];
+
+    const hasPrefix = entry.name.startsWith(`${context.bot}-`);
+    const isSource = entry.isFile() && entry.name.endsWith(".ts");
+    if (!hasPrefix || !isSource) return [];
+
+    return teamOf(context.root, path) === context.bot ? [path] : [];
+  });
+}
+
+function handInPaths(context) {
+  return [`bots/${context.bot}.ts`, `bots/${context.bot}`];
 }
 
 function benchmark(context, request) {
   const { profile, biome, lineup, matches } = request;
-  const args = ["--import", "tsx", "src/cli.ts", "bench", "--bots", lineup.join(",")];
   const seed = `${PROFILES[profile].seed}-${biome}`;
-  args.push("--matches", String(matches), "--seed", seed, "--biome", biome, "--json");
-  const result = execute(context, args);
+  const result = execute(context, benchmarkArgs({ ...request, seed }));
+  const diagnostics = result.stderr.trim();
+  const { status } = result;
+  const run = { biome, seed, status, diagnostics };
+  if (diagnostics) report(context, diagnostics.split("\n").slice(-5).join("\n"));
   try {
-    const standings = groupReplicas(JSON.parse(result.stdout).standings);
+    if (![0, 2].includes(status)) throw new Error(`CLI exited with status ${status}`);
+    const data = JSON.parse(result.stdout);
+    if (data.results.length !== matches) throw new Error("incomplete match results");
+    const participants = participantStrategies(data.results[0].botOrder, lineup);
+    const standings = [...new Set(lineup)].map((id) =>
+      summarizePerformance(data.results, { id, participants }),
+    );
 
-    return { biome, standings, status: result.status };
-  } catch {
-    report(context, `${biome}: benchmark failed (exit ${result.status})`);
-    report(context, result.stderr.trim().split("\n").slice(-5).join("\n"));
+    return { ...run, participants, standings, data };
+  } catch (error) {
+    report(context, `${biome}: benchmark failed (${error.message})`);
 
-    return { biome, standings: [], status: result.status };
+    return { ...run, standings: [], data: null, failure: error.message };
   }
 }
 
-/** Merge replica rows such as nearest-copy-1..3 into one averaged row per strategy. */
-function groupReplicas(standings) {
-  const groups = new Map();
-  for (const row of standings) {
-    const id = row.id.replace(/-copy-\d+$/, "");
-    groups.set(id, [...(groups.get(id) ?? []), row]);
-  }
+function benchmarkArgs({ lineup, matches, seed, biome }) {
+  const args = ["--import", "tsx", "src/cli.ts", "bench", "--bots", lineup.join(",")];
+  args.push("--matches", String(matches), "--seed", seed, "--biome", biome);
 
-  return [...groups].map(([id, rows]) => ({
-    id,
-    meanScore: rows.reduce((sum, row) => sum + row.meanScore, 0) / rows.length,
-    wins: rows.reduce((sum, row) => sum + row.wins, 0),
-    errors: rows.reduce((sum, row) => sum + row.errors, 0),
-  }));
+  return [...args, "--score-history", "--json"];
+}
+
+function printTable(context, headings, rows) {
+  const cells = [headings, ...rows].map((row) => row.map(String));
+  const widths = headings.map((_, index) => Math.max(...cells.map((row) => row[index].length)));
+  for (const row of cells) {
+    const aligned = row.map((cell, index) =>
+      index === 0 ? cell.padEnd(widths[index]) : cell.padStart(widths[index]),
+    );
+    report(context, aligned.join("  "));
+  }
 }
 
 function scoreTable(context, runs) {
   const ids = [...new Set(runs.flatMap((run) => run.standings.map((row) => row.id)))];
-  const width = Math.max(16, ...ids.map((id) => id.length + 2));
-  const header = ["bot".padEnd(width), ...runs.map((run) => run.biome.slice(0, 6).padStart(7))];
-  report(context, [...header, "   mean", " wins", " errors"].join(""));
-  for (const id of ids) {
-    const rows = runs.map((run) => run.standings.find((row) => row.id === id));
-    const scores = rows.map((row) => row?.meanScore ?? 0);
-    const mean = scores.reduce((sum, score) => sum + score, 0) / scores.length;
-    const wins = rows.reduce((sum, row) => sum + (row?.wins ?? 0), 0);
-    const errors = rows.reduce((sum, row) => sum + (row?.errors ?? 0), 0);
-    const cells = scores.map((score) => score.toFixed(0).padStart(7));
-    const totals = [
-      mean.toFixed(1).padStart(7),
-      String(wins).padStart(5),
-      String(errors).padStart(7),
-    ];
-    report(context, [id.padEnd(width), ...cells, ...totals].join(""));
-  }
+  const headings = ["bot", ...runs.map((run) => run.biome), "mean", "wins", "ties", "errors"];
+  const rows = ids.map((id) => strategyScoreRow(id, runs));
+  const meanColumn = headings.indexOf("mean");
+  rows.sort((first, second) => Number(second[meanColumn]) - Number(first[meanColumn]));
+  report(context, "Mean banked score by biome. Wins are outright wins. Ties are shared firsts.");
+  printTable(context, headings, rows);
+}
+
+function strategyScoreRow(id, runs) {
+  const byBiome = runs.map((run) => run.standings.find((row) => row.id === id));
+  const completed = byBiome.filter(Boolean);
+
+  return [
+    id,
+    ...byBiome.map((row) => row?.meanScore.toFixed(1) ?? "-"),
+    mean(completed.map((row) => row.meanScore)).toFixed(1),
+    sum(completed, "wins"),
+    sum(completed, "ties"),
+    sum(completed, "errors"),
+  ];
+}
+
+function biomeDetailRow(run, id) {
+  const row = run.standings.find((standing) => standing.id === id);
+  const maps = new Set(run.data.results.map((match) => match.config.seed)).size;
+
+  return [
+    run.biome,
+    maps,
+    run.data.matches,
+    row.meanRank.toFixed(1),
+    row.wins,
+    row.ties,
+    `${row.minScore}..${row.maxScore}`,
+    row.meanMargin?.toFixed(1) ?? "-",
+    row.captures,
+    row.stolen,
+    row.lost,
+    row.meanUnbanked.toFixed(1),
+    row.errors,
+  ];
+}
+
+function reportBenchmarkDetails(context, runs, id) {
+  const completed = runs.filter((run) => run.data);
+  const matches = completed.reduce((total, run) => total + run.data.matches, 0);
+  report(context, `Completed ${completed.length}/${runs.length} biomes, ${matches} matches.`);
+  if (!completed.length) return;
+
+  scoreTable(context, runs);
+  report(context);
+  report(context, `${id} by biome. Margin is mean score versus the top rival in each match.`);
+  report(context, "Unbanked is mean cargo value at the end. Captures, stolen and lost are totals.");
+  printTable(
+    context,
+    BIOME_DETAIL_COLUMNS,
+    completed.map((run) => biomeDetailRow(run, id)),
+  );
+}
+
+function writeBenchmarkEvidence(context, evidence) {
+  const { lineup, runs } = evidence;
+  const completed = runs.filter((run) => run.data);
+  const results = completed.flatMap((run) => run.data.results);
+  const participants = completed[0]?.participants;
+  const summary = participants
+    ? [...new Set(lineup)].map((id) => summarizePerformance(results, { id, participants }))
+    : [];
+  if (summary.length) printOptimizationTable(context, summary);
+
+  const data = { label: context.label, ...evidence, summary };
+  const path = writeEvidence(context, "json", JSON.stringify(data, null, 2));
+  report(context, `Match data: ${path}`);
+}
+
+function printOptimizationTable(context, summary) {
+  const rows = summary.map((row) => [
+    row.id,
+    row.meanFirstBankTick?.toFixed(1) ?? "-",
+    row.meanHalfwayScore?.toFixed(1) ?? "-",
+    row.pointsPerDeposit?.toFixed(1) ?? "-",
+    row.pointsPerTile?.toFixed(2) ?? "-",
+    row.scorelessStarts,
+    row.disabledStarts,
+  ]);
+  report(context);
+  report(
+    context,
+    "Banking and movement across completed matches. First bank averages scoring starts.",
+  );
+  printTable(
+    context,
+    [
+      "bot",
+      "first bank tick",
+      "halfway pts",
+      "pts/deposit",
+      "pts/tile",
+      "scoreless starts",
+      "disabled starts",
+    ],
+    rows,
+  );
 }
 
 function compare(context, profile) {
@@ -140,20 +271,20 @@ function compare(context, profile) {
     context,
     `${profile}: ${lineup.join(", ")} | ${matches} matches per map type | seed ${seed}`,
   );
-  report(context, "Mean banked score per map type (higher is better):");
   const request = { profile, lineup, matches };
   const runs = biomes.map((biome) => benchmark(context, { ...request, biome }));
-  scoreTable(context, runs);
+  reportBenchmarkDetails(context, runs, lineup[0]);
+  writeBenchmarkEvidence(context, { profile, lineup, runs });
 
-  const crashed = runs.some((run) => !run.standings.length);
-  const ownErrors = runs.some((run) => run.standings.some(isOwnBotError(context)));
-  if (ownErrors) report(context, `${context.bot} had errors or timeouts. See the errors column.`);
+  const crashed = runs.some((run) => !run.data);
+  const ownErrors = runs.some((run) => run.standings.some(isOwnBotError(lineup[0])));
+  if (ownErrors) report(context, `${lineup[0]} had errors or timeouts. See the errors column.`);
 
   return crashed || ownErrors ? 1 : 0;
 }
 
-function isOwnBotError(context) {
-  return (row) => row.id === context.bot && row.errors > 0;
+function isOwnBotError(id) {
+  return (row) => row.id === id && row.errors > 0;
 }
 
 function playMatch(context) {
@@ -165,8 +296,8 @@ function playMatch(context) {
   args.push("--seed", `dev-play-${biome}`, "--stats", "none", "--replay", replay);
   const result = execute(context, args);
   report(context, result.stdout.trim());
-  if (result.status !== 0) report(context, result.stderr.trim());
-  report(context, `Replay: ${replay}. Watch it with \`yarn dev\` -> Import.`);
+  if (result.stderr) report(context, result.stderr.trim());
+  if (result.status === 0) report(context, "Watch the replay with `yarn dev` -> Import.");
 
   return result.status;
 }
@@ -174,23 +305,26 @@ function playMatch(context) {
 function step(context, request) {
   const result = execute(context, request.args);
   const passed = result.status === 0;
-  report(context, `${passed ? "PASS" : "FAIL"}  ${request.name}`);
+  const label = request.advisory ? "WARN" : "FAIL";
+  report(context, `${passed ? "PASS" : label}  ${request.name}`);
   if (!passed)
     report(context, `${result.stdout}${result.stderr}`.trim().split("\n").slice(-30).join("\n"));
 
   return passed;
 }
 
-function checkDiscovery(context) {
+/** @param {string[]} paths */
+function checkDiscovery(context, paths) {
   const result = execute(context, ["--import", "tsx", "src/cli.ts", "bots"]);
-  const lines = result.stdout.split("\n");
-  const listed = lines.some((line) => line.startsWith(`${context.bot} `));
-  const local = lines
-    .filter((line) => line.startsWith(`${context.bot}-`))
-    .map((line) => line.split(" ")[0]);
-  const skipped = result.stderr
-    .split("\n")
-    .filter((line) => line.startsWith(`Bot skipped: ${context.bot}`));
+  const ids = result.stdout.split("\n").map((line) => line.split(" ")[0]);
+  const listed = ids.includes(context.bot);
+  const local = ids.filter((id) => {
+    const isPracticeId = id.startsWith(`${context.bot}-`);
+    const hasPracticeFile = paths.includes(`bots/${id}.ts`);
+
+    return isPracticeId && hasPracticeFile;
+  });
+  const skipped = result.stderr.split("\n").filter((line) => skippedBotInPaths(line, paths));
   const passed = listed && !skipped.length;
   const extra = local.length ? ` (local bots: ${local.join(", ")})` : "";
   report(context, `${passed ? "PASS" : "FAIL"}  ${context.bot} is discovered by the game${extra}`);
@@ -199,32 +333,58 @@ function checkDiscovery(context) {
   return passed;
 }
 
-function runChecks(context) {
-  const paths = familyPaths(context);
+function skippedBotInPaths(line, paths) {
+  const file = line.match(/^Bot skipped: (.+?): /)?.[1];
+  if (!file) return false;
+
+  return paths.some((path) => {
+    const exactFile = `bots/${file}` === path;
+    const withinFolder = `bots/${file}`.startsWith(`${path}/`);
+
+    return exactFile || withinFolder;
+  });
+}
+
+function runChecks(context, paths = familyPaths(context)) {
   const results = [
-    checkDiscovery(context),
+    checkDiscovery(context, paths),
     step(context, { name: "types", args: [TOOLS.typescript, "--noEmit"] }),
     step(context, { name: "structure rules", args: ["scripts/check-structure.mjs"] }),
-    step(context, { name: "formatting", args: [TOOLS.prettier, "--check", ...paths] }),
   ];
+  formatBotFiles(context, "--check", paths);
 
   return results.every(Boolean) ? 0 : 1;
 }
 
-function formatBot(context) {
+function formatBotFiles(context, mode, paths = familyPaths(context)) {
+  const prettier = findPrettier(context.root);
+  if (!prettier) {
+    report(context, PRETTIER_SKIPPED);
+
+    return true;
+  }
+
+  const advisory = mode === "--check";
   return step(context, {
-    name: "format bot files",
-    args: [TOOLS.prettier, "--write", ...familyPaths(context)],
-  })
-    ? 0
-    : 1;
+    name: advisory ? "formatting (optional)" : "format bot files",
+    args: [prettier, ...PRETTIER_CONFIG_ARGS, mode, ...paths],
+    advisory,
+  });
+}
+
+function formatBot(context) {
+  return formatBotFiles(context, "--write") ? 0 : 1;
 }
 
 function practiceBotIds(context) {
   const prefix = `bots/${context.bot}-`;
 
   return familyPaths(context)
-    .filter((path) => path.startsWith(prefix) && path.endsWith(".ts"))
+    .filter((path) => {
+      const belongsToTeam = path.startsWith(prefix);
+      const isTypeScript = path.endsWith(".ts");
+      return belongsToTeam && isTypeScript;
+    })
     .map((path) => path.slice("bots/".length, -".ts".length));
 }
 
@@ -240,72 +400,122 @@ function tournamentLineup(context) {
 function playTournament(context, request) {
   const { lineup, seed } = request;
   const args = ["--import", "tsx", "src/cli.ts", "tournament", "--bots", lineup.join(",")];
-  args.push("--wins", "3", "--seed", seed, "--json");
+  args.push("--wins", String(TOURNAMENT_WIN_TARGET), "--seed", seed, "--json");
+  if (context.biome) args.push("--biome", context.biome);
   const result = execute(context, args);
+  const { status } = result;
+  const diagnostics = result.stderr.trim();
+  const run = { seed, status, diagnostics };
+  if (diagnostics) report(context, diagnostics.split("\n").slice(-5).join("\n"));
   try {
-    const standings = JSON.parse(result.stdout).standings;
-    const place = standings.findIndex((row) => row.id === context.bot) + 1;
-    if (place === 0) throw new Error(`${context.bot} is missing from the standings.`);
+    if (![0, 2].includes(status)) throw new Error(`CLI exited with status ${status}`);
+    const data = JSON.parse(result.stdout);
 
-    return { seed, standings, place, team: standings[place - 1] };
-  } catch {
-    report(context, `${seed}: tournament failed (exit ${result.status})`);
-    report(context, result.stderr.trim().split("\n").slice(-5).join("\n"));
+    return { ...run, ...describeTournament(data, lineup), data };
+  } catch (error) {
+    report(context, `${seed}: tournament failed (${error.message})`);
 
-    return null;
+    return { ...run, data: null, failure: error.message };
   }
 }
 
-function summarizeTournaments(context, results) {
-  const played = results.filter(Boolean);
-  const won = played.filter((result) => result.place === 1).length;
-  const places = played.reduce((sum, result) => sum + result.place, 0);
-  const errors = played.reduce((sum, result) => sum + result.team.errors, 0);
-  const meanPlace = (places / Math.max(1, played.length)).toFixed(1);
-  const size = played[0]?.standings.length ?? 0;
+function reportTournament(context, run) {
+  const { seed, standings, team, winnerIds, progression } = run;
   report(context, "");
   report(
     context,
-    `Summary: won ${won} of ${results.length}, average place ${meanPlace} of ${size}, ${errors} errors.`,
+    `${seed} finished after ${progression.length} rounds. Winners: ${winnerIds.join(", ")}.`,
   );
+  const finish = standings.map((row) => [row.id, row.place, row.score, row.wins, row.errors]);
+  printTable(context, ["bot", "place", "points", "round wins", "errors"], finish);
+  report(context, `${team.id} by round. Tied leaders each earn a round win.`);
+  const rounds = progression.map((round) => tournamentRoundRow(round, team.id));
+  printTable(
+    context,
+    ["round", "biome", "points", "total pts", "rank", "total wins", "leaders"],
+    rounds,
+  );
+}
 
-  return played.length < results.length || errors > 0 ? 1 : 0;
+function tournamentRoundRow(round, id) {
+  const row = round.standings.find((standing) => standing.id === id);
+
+  return [
+    round.round,
+    round.biome,
+    row.score,
+    row.cumulativeScore,
+    row.rank,
+    row.cumulativeWins,
+    round.leaders.join(", "),
+  ];
 }
 
 function tournaments(context) {
   const lineup = tournamentLineup(context);
   report(
     context,
-    `tournament x${TOURNAMENT_SEEDS.length}: ${lineup.join(", ")} | first to 3 round wins`,
+    `tournament x${TOURNAMENT_SEEDS.length}: ${lineup.join(", ")} | first to ${TOURNAMENT_WIN_TARGET} round wins`,
   );
-  const results = TOURNAMENT_SEEDS.map((seed) => playTournament(context, { lineup, seed }));
-  for (const result of results.filter(Boolean)) {
-    const { seed, standings, place, team } = result;
-    const line = `${seed}: place ${place} of ${standings.length}, ${team.wins} round wins, score ${team.score}`;
-    report(context, `${line}, ${team.errors} errors. Winner: ${standings[0].id}`);
-  }
+  const runs = TOURNAMENT_SEEDS.map((seed) => playTournament(context, { lineup, seed }));
+  for (const run of runs.filter((run) => run.data)) reportTournament(context, run);
 
-  return summarizeTournaments(context, results);
+  const summary = summarizeTournamentRuns(runs);
+  reportTournamentSummary(context, summary);
+  const evidence = {
+    label: context.label,
+    lineup,
+    winTarget: TOURNAMENT_WIN_TARGET,
+    summary,
+    runs,
+  };
+  const path = writeEvidence(context, "json", JSON.stringify(evidence, null, 2));
+  report(context, `Tournament data: ${path}`);
+
+  const incomplete = summary.completed < summary.attempted;
+  const teamErrors = summary.errors > 0;
+
+  return incomplete || teamErrors ? 1 : 0;
 }
 
-/** Removes practice bots, checks the final bot, and zips it with its workflow folder. */
+function reportTournamentSummary(context, summary) {
+  const {
+    wins,
+    sharedWins,
+    attempted,
+    completed,
+    rounds,
+    roundWins,
+    sharedRoundWins,
+    meanRoundScore,
+    meanPlace,
+    errors,
+  } = summary;
+  report(context, "");
+  report(
+    context,
+    `Won ${wins} of ${completed} completed tournaments (${sharedWins} shared). Completed ${completed}/${attempted}.`,
+  );
+  if (!completed) return;
+  report(
+    context,
+    `${roundWins} wins in ${rounds} rounds (${sharedRoundWins} shared), ${meanRoundScore.toFixed(1)} points per round, average place ${meanPlace.toFixed(1)}, ${errors} errors.`,
+  );
+}
+
+/** Check the final bot and zip it with its team folder. */
 function packHandIn(context) {
   const review = readArtifact({ root: context.root, folder: context.folder, name: "REVIEW.md" });
-  if (!review || !isApproved(review)) {
-    report(
-      context,
-      "REVIEW.md is not approved yet. Ask the risk owner first. Nothing was removed.",
-    );
+  const reviewApproved = review !== null && isApproved(review);
+  if (!reviewApproved) {
+    report(context, "REVIEW.md is not approved yet. Ask the risk owner first.");
     return 1;
   }
-  for (const id of practiceBotIds(context)) {
-    rmSync(resolve(context.root, `bots/${id}.ts`));
-    report(context, `Removed practice bot bots/${id}.ts`);
-  }
-  if (runChecks(context) !== 0) return 1;
+  const paths = handInPaths(context);
+  if (runChecks(context, paths) !== 0) return 1;
 
   const target = `results/${context.bot}-handin.zip`;
-  const files = listFiles(context.root, familyPaths(context));
+  const files = listFiles(context.root, paths);
   mkdirSync(resolve(context.root, "results"), { recursive: true });
   writeZip(context.root, { files, target });
   report(
@@ -340,16 +550,34 @@ const OPERATIONS_RUN = {
   pack: packHandIn,
 };
 
-function saveEvidence(context, exitCode) {
-  if (context.operation === "status") return;
+function writeEvidence(context, extension, body) {
   const biome = context.biome ? `-${context.biome}` : "";
   const versus = context.customOpponents ? `-vs-${context.opponents.join("_")}` : "";
-  const name = `${context.stage}-${context.operation}${biome}${versus}`.slice(0, 120) + ".txt";
-  const folder = resolve(context.root, context.folder, "evidence");
+  const label = context.label ? `.label-${context.label}` : "";
+  const stem = evidenceStem(`${context.stage}-${context.operation}${biome}${versus}`, label);
+  const folder = `${context.folder}/evidence`;
+  const path = `${folder}/${stem}.${extension}`;
+  mkdirSync(resolve(context.root, folder), { recursive: true });
+  writeFileSync(resolve(context.root, path), `${body}\n`);
+
+  return path;
+}
+
+function evidenceStem(name, label) {
+  if (name.length + label.length <= 120) return name + label;
+  const hash = createHash("sha256")
+    .update(name + label)
+    .digest("hex")
+    .slice(0, 12);
+
+  return `${name.slice(0, 107 - label.length)}-${hash}${label}`;
+}
+
+function saveEvidence(context, exitCode) {
+  if (context.operation === "status") return;
   const body = [`$ ${context.command}`, `exit code: ${exitCode}`, "", ...context.log].join("\n");
-  mkdirSync(folder, { recursive: true });
-  writeFileSync(resolve(folder, name), `${body}\n`);
-  process.stdout.write(`Evidence saved: ${context.folder}/evidence/${name}\n`);
+  const path = writeEvidence(context, "txt", body);
+  process.stdout.write(`Evidence saved: ${path}\n`);
 }
 
 export function availableOperations(stage) {
@@ -357,19 +585,42 @@ export function availableOperations(stage) {
 }
 
 function parseOptions(rest) {
-  const at = rest.indexOf("--vs");
-  const customOpponents = at >= 0;
-  const listed = customOpponents ? String(rest[at + 1] ?? "").split(",") : OPPONENTS;
-  const opponents = listed.filter(Boolean);
-  const positional = rest.filter((_, index) => !customOpponents || index < at || index > at + 1);
-  const [biome, extra] = positional;
-  if (extra !== undefined || (biome !== undefined && !BIOMES.includes(biome)))
-    throw new Error(`${USAGE}\nBiomes: ${BIOMES.join(", ")}.`);
+  const options = { opponents: OPPONENTS, customOpponents: false };
+  for (let index = 0; index < rest.length; index++) {
+    const arg = rest[index];
+    const newLineup = arg === "--vs" && !options.customOpponents;
+    const newLabel = arg === "--label" && !options.label;
+    const newBiome = !options.biome && BIOMES.includes(arg);
+    if (newLineup) {
+      options.opponents = parseOpponents(rest[++index]);
+      options.customOpponents = true;
+    } else if (newLabel) {
+      options.label = parseEvidenceLabel(rest[++index]);
+    } else if (newBiome) {
+      options.biome = arg;
+    } else {
+      throw new Error(`${USAGE}\nBiomes: ${BIOMES.join(", ")}.`);
+    }
+  }
+
+  return options;
+}
+
+function parseOpponents(value = "") {
+  const opponents = value.split(",").filter(Boolean);
   const validIds = opponents.length > 0 && opponents.every((id) => BOT_ID.test(id));
-  if (!validIds || opponents.length >= MAX_LINEUP)
+  const withinLimit = opponents.length < MAX_LINEUP;
+  if (!validIds || !withinLimit)
     throw new Error(`--vs takes 1 to ${MAX_LINEUP - 1} comma-separated bot IDs.`);
 
-  return { biome, opponents, customOpponents };
+  return opponents;
+}
+
+function parseEvidenceLabel(value = "") {
+  if (!BOT_ID.test(value))
+    throw new Error("--label takes 1 to 48 lowercase letters, digits, or hyphens.");
+
+  return value;
 }
 
 export function parseRequest(args, root = ROOT) {

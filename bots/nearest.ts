@@ -1,13 +1,13 @@
 import {
   canGrab,
-  distanceField,
+  findNearestRoute,
+  findPath,
   getInventoryStats,
-  positionKey,
   RESOURCES,
   type Action,
   type Bot,
   type Observation,
-  type Route,
+  type InventoryStats,
 } from "../src/sdk.ts";
 
 const HOME_MARGIN = 2;
@@ -21,36 +21,23 @@ export default class Nearest implements Bot {
   };
 
   act(state: Observation): Action {
-    const routes = distanceField(state.map, state.self.position);
-    if (shouldBank(state, routes)) return { type: "home" };
+    const bag = getInventoryStats(state);
+    if (shouldBank(state, bag)) return { type: "home" };
     if (canGrab(state)) return { type: "grab" };
 
-    const direction = closestResourceRoute(state, routes)?.steps[0];
+    const targets = state.resources.filter((pile) => RESOURCES[pile.kind].weight <= bag.freeWeight);
+    const nearest = findNearestRoute(state.map, state.self.position, targets);
+    const direction = nearest?.route.steps[0];
     if (direction) return { type: "move", direction };
 
-    return getInventoryStats(state).weight > 0 ? { type: "home" } : { type: "skip" };
+    return bag.weight > 0 ? { type: "home" } : { type: "skip" };
   }
 }
 
-function shouldBank(state: Observation, routes: Map<string, Route>): boolean {
-  const bag = getInventoryStats(state);
-  const homeCost = routes.get(positionKey(state.self.base))?.cost ?? 0;
-  const bagFull = bag.freeWeight === 0;
-  const timeShort = state.remainingTicks <= homeCost + HOME_MARGIN;
+function shouldBank(state: Observation, bag: InventoryStats): boolean {
+  if (!bag.weight) return false;
+  if (!bag.freeWeight) return true;
 
-  return bag.weight > 0 && (bagFull || timeShort);
-}
-
-function closestResourceRoute(state: Observation, routes: Map<string, Route>) {
-  const freeWeight = getInventoryStats(state).freeWeight;
-  let closest: Route | undefined;
-
-  for (const pile of state.resources) {
-    const route = routes.get(positionKey(pile));
-    const fits = RESOURCES[pile.kind].weight <= freeWeight;
-    const closer = route !== undefined && (!closest || route.cost < closest.cost);
-    if (fits && closer) closest = route;
-  }
-
-  return closest;
+  const homeCost = findPath(state.map, state.self.position, state.self.base)?.cost ?? 0;
+  return state.remainingTicks <= homeCost + HOME_MARGIN;
 }

@@ -1,17 +1,19 @@
 import { createMatchStatistics, type MatchStatistics } from "./match-statistics.ts";
 import { WorldController } from "./world/world-controller.ts";
-import { getHazardMap } from "./world/hazard-map.ts";
+import { copyObservationTerrain, copyTerrain } from "./observation-terrain.ts";
+import { HazardMapCache } from "./world/hazard-map.ts";
 import type { WorldContext, VisualEffect } from "./world/types.ts";
 import { MAX_BOTS } from "./types.ts";
 import { generateMap } from "./map.ts";
 import { normalizeConfig } from "./config.ts";
+import { getNearestBank, stealableItem } from "./competition.ts";
 import {
-  getNearestBank,
+  checkDepotCapture,
   isBankingTile,
   isContested,
-  isOutpostProtected,
-  stealableItem,
-} from "./competition.ts";
+  isDepotOffline,
+  type DepotCaptureBlock,
+} from "./depot-rules.ts";
 import {
   DIRECTIONS,
   inventoryValue,
@@ -44,6 +46,7 @@ import {
 export class Game {
   readonly config: GameConfig;
   private map: GameMap;
+  private hazardMaps: HazardMapCache;
   private resources: ResourcePile[];
   private bots: BotState[];
   private hotspots: Hotspot[];
@@ -70,6 +73,7 @@ export class Game {
     this.config = normalizeConfig(config);
     const generated = generateMap(this.config, controllers.length);
     this.map = generated.map;
+    this.hazardMaps = new HazardMapCache(this.map);
     this.resources = generated.resources;
     this.hotspots = generated.hotspots;
     this.outposts = generated.outposts;
@@ -103,7 +107,7 @@ export class Game {
   }
 
   snapshot(): Snapshot {
-    return structuredClone({
+    return cloneTickState({
       config: this.config,
       map: this.createCurrentMap(),
       ...this.createCurrentFrame(),
@@ -124,9 +128,23 @@ export class Game {
     };
   }
 
-  async step(): Promise<Snapshot> {
+  step(): Promise<Snapshot> {
+    return this.advanceTick(true);
+  }
+
+  async runToEnd(onScores?: (scores: number[]) => void): Promise<void> {
+    onScores?.(this.bots.map((bot) => bot.score));
+    while (this.tick < this.config.ticks) {
+      await this.advanceTick(false);
+      onScores?.(this.bots.map((bot) => bot.score));
+    }
+  }
+
+  private advanceTick(includeSnapshot: true): Promise<Snapshot>;
+  private advanceTick(includeSnapshot: false): Promise<void>;
+  private async advanceTick(includeSnapshot: boolean): Promise<Snapshot | void> {
     if (this.stepping) throw new Error("A tick is already in progress");
-    if (this.tick >= this.config.ticks) return this.snapshot();
+    if (this.tick >= this.config.ticks) return includeSnapshot ? this.snapshot() : undefined;
     if (this.closed) throw new Error("Game has been disposed");
 
     this.stepping = true;
@@ -139,14 +157,13 @@ export class Game {
         await this.takeBotTurn(index);
       }
 
-      this.world.finishTick(this.createWorldContext());
       this.countDepotDowntime();
       this.tick++;
       if (this.options.recordReplay !== false)
-        this.frames.push(structuredClone(this.createCurrentFrame()));
+        this.frames.push(cloneTickState(this.createCurrentFrame()));
       if (this.tick >= this.config.ticks) this.dispose();
 
-      return this.snapshot();
+      if (includeSnapshot) return this.snapshot();
     } finally {
       this.stepping = false;
     }
@@ -169,20 +186,23 @@ export class Game {
   }
 
   private createBotObservation(bot: BotState): Observation {
-    return structuredClone({
-      config: this.config,
-      tick: this.tick,
-      maxTicks: this.config.ticks,
-      remainingTicks: this.config.ticks - this.tick,
-      capacity: this.config.capacity,
-      map: this.createCurrentMap(),
-      world: this.world.state,
-      resources: this.resources,
-      hotspots: this.hotspots,
-      outposts: this.outposts,
-      bots: this.bots,
-      self: bot,
-    });
+    return cloneTickState(
+      {
+        config: this.config,
+        tick: this.tick,
+        maxTicks: this.config.ticks,
+        remainingTicks: this.config.ticks - this.tick,
+        capacity: this.config.capacity,
+        map: this.createCurrentMap(),
+        world: this.world.state,
+        resources: this.resources,
+        hotspots: this.hotspots,
+        outposts: this.outposts,
+        bots: this.bots,
+        self: bot,
+      },
+      copyObservationTerrain,
+    );
   }
 
   private async requestBotDecision(index: number, bot: BotState): Promise<void> {
@@ -340,24 +360,19 @@ export class Game {
   }
 
   private captureOutpost(bot: BotState): void {
-    const post = this.outposts.find((post) => samePosition(post, bot.position));
+    const capture = checkDepotCapture({
+      self: bot,
+      outposts: this.outposts,
+      bots: this.bots,
+      tick: this.tick,
+    });
+    if (capture.status !== "available") {
+      this.resetBotCapture(bot.id);
+      bot.lastAction = captureBlockedMessage(capture);
+      return;
+    }
 
-    const outpostUnavailable = !post || post.ownerId === bot.id;
-    if (outpostUnavailable) {
-      this.resetBotCapture(bot.id);
-      bot.lastAction = post ? "Outpost already owned" : "No outpost here";
-      return;
-    }
-    if (isOutpostProtected(post, this.tick)) {
-      this.resetBotCapture(bot.id);
-      bot.lastAction = `Outpost protected until tick ${post.captureProtectedUntilTick}`;
-      return;
-    }
-    if (isContested(post, this.bots, bot.id)) {
-      this.resetBotCapture(bot.id);
-      bot.lastAction = "Outpost contested";
-      return;
-    }
+    const post = capture.outpost;
     if (post.capturingBotId !== bot.id) {
       post.capturingBotId = bot.id;
       post.captureProgress = 0;
@@ -437,9 +452,10 @@ export class Game {
 
   private countDepotDowntime(): void {
     for (const post of this.outposts) {
-      const offline = (post.disabledUntilTick ?? 0) > this.tick;
+      const depotOffline = isDepotOffline(post, this.tick);
       const ownerId = post.ownerId;
-      if (!offline || !ownerId) continue;
+      const hasOwner = !!ownerId;
+      if (!depotOffline || !hasOwner) continue;
 
       this.statistics.get(ownerId)!.depotOfflineTicks++;
     }
@@ -460,7 +476,7 @@ export class Game {
   }
 
   private createCurrentMap(): GameMap {
-    return getHazardMap(this.map, this.world.state, this.tick);
+    return this.hazardMaps.atTick(this.world.state, this.tick);
   }
 
   private countRemainingResources(): number {
@@ -475,12 +491,12 @@ export class Game {
   }
 
   replay(): Replay {
-    return structuredClone({
+    return {
       version: 1,
-      initial: this.initial,
-      frames: this.frames,
+      initial: cloneTickState(this.initial),
+      frames: this.frames.map((frame) => cloneTickState(frame)),
       result: this.result(),
-    });
+    };
   }
   dispose() {
     if (!this.closed) {
@@ -491,7 +507,35 @@ export class Game {
   }
 }
 
-function isValidBotAction(value: unknown): value is Action {
+function captureBlockedMessage(capture: DepotCaptureBlock): string {
+  if (capture.status === "protected") return `Outpost protected until tick ${capture.untilTick}`;
+
+  return {
+    missing: "No outpost here",
+    owned: "Outpost already owned",
+    contested: "Outpost contested",
+  }[capture.status];
+}
+
+function cloneTickState<State extends { resources: ResourcePile[]; map?: GameMap }>(
+  state: State,
+  copyMap = copyTerrain,
+): State {
+  // Resource piles and terrain cells contain only primitives. Keep the rest in one clone
+  // to preserve shared references such as the observation's self and its entry in bots.
+  const { map, resources } = state;
+  const payload: Partial<State> = { ...state };
+  payload.resources = undefined;
+  if (map) payload.map = undefined;
+
+  const clone = structuredClone(payload);
+  clone.resources = resources.map((pile) => ({ ...pile }));
+  if (map) clone.map = copyMap(map);
+
+  return clone as State;
+}
+
+export function isValidBotAction(value: unknown): value is Action {
   if (!value) return false;
   if (typeof value !== "object") return false;
   if (!("type" in value)) return false;

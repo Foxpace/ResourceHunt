@@ -1,5 +1,6 @@
 import { normalizeConfig } from "../engine/config.ts";
 import type { GameConfig } from "../engine/types.ts";
+import { resolve } from "node:path";
 
 export const HELP = `Resource Hunt · Node.js bot simulator
 
@@ -35,6 +36,8 @@ Options:
   --guardians <n>      Guarded hotspots, 0..6, default 2
   --natural-events <bool> Forecast biome hazards, default true
   --matches <n>         Benchmark matches, default 20
+  --score-history      Include banked points by tick in benchmark JSON
+  --action-timing      Measure valid bot decision latency by action and tick (bench only)
   --wins <n>            Tournament win target, 1..10, default 3
   --standout-badges <n> Standout badges, 0..30, default 3
   --random-badges <n>   Random badges, 0..30, default 5
@@ -50,6 +53,7 @@ Options:
   --help               Show this help
 
 Larger lineups require more room: 15 bots need at least 25 × 25 cells.
+If an output or replay path exists, a number is added before the extension.
 Benchmarks rotate starting bases. Each group of N matches uses the same map
 seed, with N equal to the selected bot count. Use a multiple of N for balance.
 Exit codes: 0 success, 1 input/runtime failure, 2 completed with bot errors.
@@ -69,8 +73,7 @@ export function parseArguments(args: readonly string[]) {
   if (!["play", "bench", "bots", "tournament", "inspect"].includes(command))
     throw new Error(`Unknown command: ${command}`);
 
-  const matchesFlagUnsupported = command !== "bench" && flags.has("matches");
-  if (matchesFlagUnsupported) throw new Error("--matches is only available with bench");
+  validateBenchmarkFlags(command, flags);
 
   const replayFlagUnsupported = command !== "play" && flags.has("replay");
   if (replayFlagUnsupported) throw new Error("--replay is only available with play");
@@ -78,7 +81,24 @@ export function parseArguments(args: readonly string[]) {
   const winFlagUnsupported = command !== "tournament" && flags.has("wins");
   if (winFlagUnsupported) throw new Error("--wins is only available with tournament");
   validateInspectionFlags(command, flags);
+  validateOutputPaths(flags);
   return { command, flags };
+}
+
+function validateBenchmarkFlags(command: string, flags: ReadonlyMap<string, string>): void {
+  if (command === "bench") return;
+  for (const flag of ["matches", "score-history", "action-timing"]) {
+    if (flags.has(flag)) throw new Error(`--${flag} is only available with bench`);
+  }
+}
+
+function validateOutputPaths(flags: ReadonlyMap<string, string>): void {
+  const output = flags.get("output");
+  const replay = flags.get("replay");
+  if (output === undefined) return;
+  if (replay === undefined) return;
+  if (resolve(output) === resolve(replay))
+    throw new Error("--output and --replay must use different paths");
 }
 
 function validateInspectionFlags(command: string, flags: ReadonlyMap<string, string>): void {
@@ -165,6 +185,8 @@ const ALLOWED_FLAGS = new Set([
   "guardians",
   "natural-events",
   "matches",
+  "score-history",
+  "action-timing",
   "wins",
   "standout-badges",
   "random-badges",
@@ -185,7 +207,7 @@ function parseFlags(values: string[]): Map<string, string> {
   for (let index = 0; index < values.length; index++) {
     const key = values[index]!;
     if (!/^--[a-z]+(?:-[a-z]+)*$/.test(key)) throw new Error(`Unexpected argument: ${key}`);
-    if (["--json", "--help", "--map"].includes(key)) {
+    if (["--json", "--help", "--map", "--score-history", "--action-timing"].includes(key)) {
       flags.set(key.slice(2), "true");
       continue;
     }

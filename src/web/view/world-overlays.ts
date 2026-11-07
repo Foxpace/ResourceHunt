@@ -226,9 +226,9 @@ export class WorldOverlays {
 
   private drawDepotDamage(): void {
     for (const outpost of this.state.outposts) {
-      const disabled = (outpost.disabledUntilTick ?? 0) > this.state.tick;
-      const targeted = (outpost.sabotageProgress ?? 0) > 0;
-      if (!disabled && !targeted) continue;
+      const depotOffline = (outpost.disabledUntilTick ?? 0) > this.state.tick;
+      const sabotageUnderway = (outpost.sabotageProgress ?? 0) > 0;
+      if (!depotOffline && !sabotageUnderway) continue;
 
       this.atCell(outpost, (context) => {
         context.strokeStyle = "#ff786c";

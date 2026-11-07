@@ -33,7 +33,7 @@ on unseen maps at the end, and the replay moment that shows the special move. --
 ## For the agent
 
 <!-- The agent's build sheet. The team may skip it. Files: `bots/<bot-id>.ts` (final bot, one file) and
-`bots/<bot-id>-<name>.ts` (practice bots, deleted at hand-in). -->
+`bots/<bot-id>-<name>.ts` (practice bots, kept locally by default). -->
 
 | #   | Step                                   | Check            | Expected       |
 | --- | -------------------------------------- | ---------------- | -------------- |

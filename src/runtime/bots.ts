@@ -1,6 +1,7 @@
 import { createBotLineup } from "./lineup.ts";
 import { MAX_BOTS } from "../engine/types.ts";
 import { WorkerBot } from "./worker-controller.ts";
+import { checkBotSource } from "./bot-source.ts";
 import { relative, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readdir } from "node:fs/promises";
@@ -54,17 +55,14 @@ export async function discoverBots(directory = BOT_DIRECTORY): Promise<BotCatalo
   const files = await discoverBotFiles(directory);
 
   for (const file of files.sort()) {
-    const worker = new WorkerBot({ id: "", name: "", description: "", file }, 100);
     try {
-      const metadata = await worker.init("inspect", true);
-      registerInspectedBot(catalog, metadata, file);
+      const { metadata } = await checkBotSource(file);
+      registerInspectedBot(catalog, { ...metadata, file });
     } catch (error) {
       catalog.errors.push({
         file: relative(directory, file),
         error: error instanceof Error ? error.message : String(error),
       });
-    } finally {
-      worker.dispose();
     }
   }
 
@@ -76,20 +74,32 @@ export async function createControllers(
   config: GameConfig,
 ): Promise<BotController[]> {
   const controllers: WorkerBot[] = [];
+  const lineup = await Promise.all(createBotLineup(descriptors).map(checkSelectedBot));
   try {
-    for (const descriptor of createBotLineup(descriptors)) {
-      const controller = new WorkerBot(descriptor, config.decisionTimeoutMs);
-      controllers.push(controller);
-      await controller.init(`${config.seed}:bot:${descriptor.id}`);
-      validateDiscoveredMetadata(controller, descriptor);
+    for (const { descriptor, source } of lineup) {
+      controllers.push(new WorkerBot(descriptor, source, config.decisionTimeoutMs));
     }
 
+    await Promise.all(
+      controllers.map((controller) =>
+        controller.init(`${config.seed}:bot:${controller.metadata.id}`),
+      ),
+    );
     return controllers;
   } catch (error) {
     for (const controller of controllers) controller.dispose();
 
     throw error;
   }
+}
+
+async function checkSelectedBot(descriptor: BotDescriptor) {
+  const source = await checkBotSource(descriptor.file);
+  const strategyId = descriptor.strategyId ?? descriptor.id;
+  if (source.metadata.id !== strategyId)
+    throw new Error("Bot metadata changed since discovery; refresh the bot list");
+
+  return { descriptor, source };
 }
 
 async function discoverBotFiles(directory: string): Promise<string[]> {
@@ -117,14 +127,9 @@ async function discoverBotFiles(directory: string): Promise<string[]> {
   return files;
 }
 
-function registerInspectedBot(catalog: BotCatalog, metadata: BotMetadata, file: string): void {
-  if (catalog.bots.some((bot) => bot.id === metadata.id))
-    throw new Error(`Duplicate bot ID: ${metadata.id}`);
+function registerInspectedBot(catalog: BotCatalog, descriptor: BotDescriptor): void {
+  if (catalog.bots.some((bot) => bot.id === descriptor.id))
+    throw new Error(`Duplicate bot ID: ${descriptor.id}`);
 
-  catalog.bots.push({ ...metadata, file });
-}
-
-function validateDiscoveredMetadata(controller: WorkerBot, descriptor: BotDescriptor): void {
-  if (controller.metadata.id !== descriptor.id)
-    throw new Error("Bot metadata changed since discovery; refresh the bot list");
+  catalog.bots.push(descriptor);
 }

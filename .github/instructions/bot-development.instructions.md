@@ -22,10 +22,10 @@ Every question starts with its role: `**Intent owner:**`, `**Orchestrator:**`, `
 The team thinks about strategy. You handle the code, the SDK, and where things live. In chat:
 
 - **Say what the bot or you will do, never how.** Write "it leaves the storm zone a few turns early", not a helper name, a file path, a line number, or the engine's tick order. Code names belong in artifacts and code only.
-- **Short and skimmable.** At most about 60 words or four bullets per reply. Bold the one thing that matters. No preamble, recap, or closing summary. Reply in the team's language; artifacts stay in English.
+- **Short and skimmable.** Aim for about 60 words in routine updates. Give benchmark results the space they need to explain a decision, using prose, bullets, or a small table. Reply in the team's language and keep artifacts in English.
 - **Only the mechanics that change a decision.** Explain a rule only when it changes their idea: two plain sentences at most, led by the consequence ("storms hit before your bot moves, so it has to leave early"). The source link goes into the artifact, not the chat. Skip rules that do not change what the team decides.
 - **No unexplained bot names.** Do not use `nearest` or other bot IDs in questions or options. If a comparison helps, say "a simple bot that grabs the closest resource".
-- **Show progress in plain words.** "Your bot now banks about a third more than the simple bot, with no crashes." One line, when it happens.
+- **Show progress in plain words.** For benchmark updates, name the opponents and sample size, then show what changed and where it mattered. Keep the full results in the evidence files.
 
 ## Questions: few, batched, concrete
 
@@ -74,7 +74,7 @@ Approval is a human decision. You record it only after an explicit yes. The hook
 
 Never approve on your own, never answer for the team, and never treat "just do it" or "wrap up" as approval. Changing an approved artifact sets it back to draft. Humans may also edit those two lines themselves. If the hook blocks you, relay its reason in one sentence and say who must act.
 
-Start each draft from `.github/bot-workflow/templates/<ARTIFACT>.md`, delete the HTML comments, and keep it to about one page.
+Use `.github/bot-workflow/templates/<ARTIFACT>.md` as a starting point. Adapt the headings and layout to fit what the team decided. The hook reads the status and signer fields in plain text, lists, blockquotes, or two-column Markdown tables.
 
 ## The game in brief
 
@@ -87,10 +87,10 @@ Sources: [README rules](../../README.md#rules), [SDK](../../docs/sdk.md), [world
 ## Files
 
 - **Final bot:** exactly one file, `bots/<bot-id>.ts`, metadata `id: "<bot-id>"`. It imports only `../src/sdk.ts` and never uses files, network, or clocks. No tests are required: the game proves it.
-- **Practice bots:** local bots that Bot Build writes as `bots/<bot-id>-<name>.ts`, each self-contained with its own matching `id`: rivals that attack the design's weak spot, and versions of the team's bot with one setting changed. They give the final bot something real to beat and settle open questions. The team never chooses or designs them: say "I'll add a couple of practice rivals" or "I'll try both settings and tell you which scores more". Bot Hand-in deletes them before packing. See the [bot-forge skill](../skills/bot-forge/SKILL.md).
+- **Practice bots:** local bots that Bot Build writes as `bots/<bot-id>-<name>.ts`, each self-contained with its own matching `id`: rivals that attack the design's weak spot, and versions of the team's bot with one setting changed. They give the final bot something real to beat and settle open questions. The team never chooses or designs them: say "I'll add a couple of practice rivals" or "I'll try both settings and tell you which scores more". Record their exact paths in BUILD.md. Hand-in leaves them on disk and offers cleanup after packing. See the [bot-forge skill](../skills/bot-forge/SKILL.md).
 - **Artifacts and notes:** `bots/<bot-id>/_workflow/`; runner output goes to `evidence/`.
 - **Hand-in:** `results/<bot-id>-handin.zip`, made by the runner's `pack`, with `bots/<bot-id>.ts` and `bots/<bot-id>/`.
-- Game source (`src/`, `tests/`, `docs/`, `scripts/`, `.github/`) and `bots/nearest.ts` are read-only. Every bot file follows [AGENTS.md](../../AGENTS.md); `check` enforces it.
+- Game source (`src/`, `tests/`, `docs/`, `scripts/`, `.github/`) and `bots/nearest.ts` are read-only. Follow the [AGENTS.md](../../AGENTS.md) structure rules for bot files. The runner's `check` reports Prettier differences as warnings.
 
 ## Running and exploring
 

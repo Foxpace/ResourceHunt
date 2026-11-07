@@ -8,8 +8,8 @@ and records an explicit yes here. Approval hands the bot to Bot Hand-in. -->
 
 ## What was built
 
-<!-- The final bot and every practice bot (rivals and versions with one setting changed). Practice bots are
-deleted at hand-in. -->
+<!-- List the exact paths of the final bot and every practice bot this team built. Bot Hand-in uses this
+list when offering optional cleanup. -->
 
 | File | Kind | Idea | Mean score | Errors |
 | ---- | ---- | ---- | ---------- | ------ |
@@ -21,7 +21,8 @@ decided it, and what changed after a run. -->
 
 ## Which version won
 
-<!-- The comparison that picked the final bot's settings, and who decided. -->
+<!-- Cite labeled before and after runs on the same lineup and seeds. Record the change in banked
+points and wins, plus the game counter or score-history detail that explains the decision. -->
 
 ## Latest checks
 

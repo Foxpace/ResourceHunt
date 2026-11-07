@@ -1,5 +1,5 @@
 import { mapCells, manhattanDistance } from "../grid.ts";
-import { distanceField, positionKey, terrainCost } from "../pathfinding.ts";
+import { cellIndex, positionKey, terrainCost, travelCostField } from "../pathfinding.ts";
 import { randomFromSeed } from "../random.ts";
 import type { GameMap, Position } from "../types.ts";
 import type { MapSetup, StartingLayout } from "./generation-models.ts";
@@ -30,13 +30,14 @@ export class StrategicSitePlanner {
   constructor(setup: MapSetup, starts: StartingLayout) {
     const { map, config } = setup;
     const random = randomFromSeed(`${config.seed}:sites`);
-    const arrivalFields = starts.bases.map((base) => distanceField(map, base));
+    const arrivalFields = starts.bases.map((base) => travelCostField(map, base));
     this.reserved = new Set(starts.protectedCells.map(positionKey));
     this.mapScale = Math.min(map.width, map.height);
     this.candidates = [...mapCells(map, 1)]
       .filter((position) => this.isAvailableLand(map, position))
       .map((position) => {
-        const arrivalCosts = arrivalFields.map((field) => field.get(positionKey(position))!.cost);
+        const cell = cellIndex(map, position);
+        const arrivalCosts = arrivalFields.map((field) => field[cell]!);
 
         return createSiteCandidate({ map, bases: starts.bases, random }, position, arrivalCosts);
       });
@@ -59,12 +60,11 @@ export class StrategicSitePlanner {
   }
 
   refreshTravelTimes(map: GameMap, bases: Position[]): void {
-    const arrivalFields = bases.map((base) => distanceField(map, base));
+    const arrivalFields = bases.map((base) => travelCostField(map, base));
 
     for (const candidate of this.candidates) {
-      candidate.arrivalCosts = arrivalFields.map(
-        (field) => field.get(positionKey(candidate))!.cost,
-      );
+      const cell = cellIndex(map, candidate);
+      candidate.arrivalCosts = arrivalFields.map((field) => field[cell]!);
       candidate.nearestArrival = Math.min(...candidate.arrivalCosts);
       candidate.contestPenalty = calculateContestPenalty(candidate.arrivalCosts);
       candidate.opportunityShares = calculateOpportunityShares(candidate.arrivalCosts);
@@ -145,9 +145,10 @@ export class StrategicSitePlanner {
   ): SiteCandidate {
     let bestCandidate: SiteCandidate | undefined;
     let bestScore = Infinity;
+    const scorer = this.createLayoutScorer(layout, placement);
 
     for (const candidate of this.getCandidatesAwayFromSites(candidates, layout, placement)) {
-      const score = this.scoreLayout([...layout, candidate], placement);
+      const score = scorer.score(candidate);
       if (score >= bestScore) continue;
 
       bestCandidate = candidate;
@@ -200,51 +201,118 @@ export class StrategicSitePlanner {
   }
 
   private scoreLayout(layout: SiteCandidate[], placement: SitePlacement): number {
-    const accessCosts = layout[0]!.arrivalCosts.map((_, playerIndex) =>
-      Math.min(...layout.map((candidate) => candidate.arrivalCosts[playerIndex]!)),
-    );
-    const averageAccess = calculateAverage(accessCosts);
-    const accessSpread = calculateRelativeSpread(accessCosts);
-    const contestPenalty = Math.max(...layout.map((candidate) => candidate.contestPenalty));
-    const averageArrival = calculateAverage(layout.map((candidate) => candidate.nearestArrival));
-    const siteQuality = calculateAverage(
-      layout.map((candidate) => candidate.tieBreaker * 0.25 - candidate.terrainInterest * 0.03),
-    );
+    return this.createLayoutScorer(layout.slice(0, -1), placement).score(layout.at(-1)!);
+  }
+
+  private createLayoutScorer(layout: SiteCandidate[], placement: SitePlacement): LayoutScorer {
+    return new LayoutScorer(layout, this.selectedSites, {
+      mapScale: this.mapScale,
+      siteSeparation: placement.siteSeparation,
+    });
+  }
+}
+
+interface LayoutScale {
+  mapScale: number;
+  siteSeparation: number;
+}
+
+/** Reuse the score terms for sites that stay fixed while comparing candidates. */
+class LayoutScorer {
+  private existingSites: Position[];
+  private fixedSpacing: { site: SiteCandidate; distance: number }[];
+  private accessCosts: number[];
+  private opportunityShares: number[];
+  private contestPenalty: number;
+  private totalArrival: number;
+  private totalQuality: number;
+
+  constructor(
+    fixed: SiteCandidate[],
+    selected: Position[],
+    private scale: LayoutScale,
+  ) {
+    this.existingSites = [...selected, ...fixed];
+    this.fixedSpacing = fixed.map((site) => ({
+      site,
+      distance: calculateNearestSiteDistance(site, this.existingSites),
+    }));
+    this.accessCosts =
+      fixed[0]?.arrivalCosts.map((_, index) =>
+        Math.min(...fixed.map((site) => site.arrivalCosts[index]!)),
+      ) ?? [];
+    this.opportunityShares =
+      fixed[0]?.opportunityShares.map((_, index) =>
+        fixed.reduce((sum, site) => sum + site.opportunityShares[index]!, 0),
+      ) ?? [];
+    this.contestPenalty = Math.max(...fixed.map((site) => site.contestPenalty));
+    this.totalArrival = fixed.reduce((sum, site) => sum + site.nearestArrival, 0);
+    this.totalQuality = fixed.reduce((sum, site) => sum + calculateSiteQuality(site), 0);
+  }
+
+  score(candidate: SiteCandidate): number {
+    const count = this.fixedSpacing.length + 1;
+    const { averageAccess, accessSpread, opportunitySpread } = this.scorePlayerAccess(candidate);
+    const contestPenalty = Math.max(this.contestPenalty, candidate.contestPenalty);
+    const averageArrival = (this.totalArrival + candidate.nearestArrival) / count;
+    const siteQuality = (this.totalQuality + calculateSiteQuality(candidate)) / count;
 
     // Fair access and a real contest outweigh scenery and seeded variation.
     return (
       accessSpread * 12 +
-      this.calculateOpportunitySpread(layout) * 6 +
+      opportunitySpread * 6 +
       contestPenalty * 12 +
-      this.calculateSpacingPenalty(layout, placement) * 3 +
-      (averageAccess + averageArrival * 0.5) / this.mapScale +
+      this.calculateSpacingPenalty(candidate) * 3 +
+      (averageAccess + averageArrival * 0.5) / this.scale.mapScale +
       siteQuality
     );
   }
 
-  // Every site contributes to the total, including repeat opportunities for the same players.
-  private calculateOpportunitySpread(layout: SiteCandidate[]): number {
-    const playerOpportunities = layout[0]!.arrivalCosts.map((_, playerIndex) =>
-      layout.reduce((sum, candidate) => sum + candidate.opportunityShares[playerIndex]!, 0),
-    );
+  private scorePlayerAccess(candidate: SiteCandidate) {
+    let bestAccess = Infinity;
+    let worstAccess = -Infinity;
+    let totalAccess = 0;
+    let leastOpportunity = Infinity;
+    let mostOpportunity = -Infinity;
+    let totalOpportunity = 0;
+    const playerCount = candidate.arrivalCosts.length;
 
-    return calculateRelativeSpread(playerOpportunities);
+    for (let index = 0; index < playerCount; index++) {
+      const access = Math.min(this.accessCosts[index] ?? Infinity, candidate.arrivalCosts[index]!);
+      const opportunity =
+        (this.opportunityShares[index] ?? 0) + candidate.opportunityShares[index]!;
+      bestAccess = Math.min(bestAccess, access);
+      worstAccess = Math.max(worstAccess, access);
+      totalAccess += access;
+      leastOpportunity = Math.min(leastOpportunity, opportunity);
+      mostOpportunity = Math.max(mostOpportunity, opportunity);
+      totalOpportunity += opportunity;
+    }
+
+    const averageAccess = totalAccess / playerCount;
+    return {
+      averageAccess,
+      accessSpread: (worstAccess - bestAccess) / averageAccess,
+      opportunitySpread: (mostOpportunity - leastOpportunity) / (totalOpportunity / playerCount),
+    };
   }
 
-  private calculateSpacingPenalty(layout: SiteCandidate[], placement: SitePlacement): number {
-    const existingSites = [...this.selectedSites, ...layout];
+  private calculateSpacingPenalty(candidate: SiteCandidate): number {
+    const { siteSeparation } = this.scale;
+    let total = 0;
+    for (const { site, distance } of this.fixedSpacing) {
+      const nearest = Math.min(distance, manhattanDistance(site, candidate));
+      total += Math.max(0, 1 - nearest / siteSeparation);
+    }
 
-    return calculateAverage(
-      layout.map((candidate) => {
-        const otherSites = existingSites.filter((site) => site !== candidate);
-        const nearestSite = Math.min(
-          ...otherSites.map((site) => manhattanDistance(site, candidate)),
-        );
-
-        return Math.max(0, 1 - nearestSite / placement.siteSeparation);
-      }),
-    );
+    const nearest = calculateNearestSiteDistance(candidate, this.existingSites);
+    total += Math.max(0, 1 - nearest / siteSeparation);
+    return total / (this.fixedSpacing.length + 1);
   }
+}
+
+function calculateSiteQuality(candidate: SiteCandidate): number {
+  return candidate.tieBreaker * 0.25 - candidate.terrainInterest * 0.03;
 }
 
 interface CandidateContext {
@@ -286,10 +354,6 @@ function countTerrainTransitions(map: GameMap, position: Position): number {
   return neighbors.filter((neighbor) => map.tiles[neighbor.y]?.[neighbor.x] !== terrain).length;
 }
 
-function calculateAverage(values: number[]): number {
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
 function calculateContestPenalty(arrivalCosts: number[]): number {
   const sortedCosts = [...arrivalCosts].sort((first, second) => first - second);
   const nearestArrival = sortedCosts[0]!;
@@ -303,11 +367,12 @@ function calculateDistanceFromMapEdge(map: GameMap, position: Position): number 
 }
 
 function calculateNearestSiteDistance(position: Position, sites: Position[]): number {
-  return Math.min(...sites.map((site) => manhattanDistance(site, position)));
-}
+  let nearest = Infinity;
+  for (const site of sites) {
+    if (site !== position) nearest = Math.min(nearest, manhattanDistance(site, position));
+  }
 
-function calculateRelativeSpread(values: number[]): number {
-  return (Math.max(...values) - Math.min(...values)) / calculateAverage(values);
+  return nearest;
 }
 
 function calculateOpportunityShares(arrivalCosts: number[]): number[] {

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -13,11 +13,9 @@ export async function runStructureCheck(filePath: string, source: string) {
   const fixtureDirectory = await mkdtemp(join(tmpdir(), "resource-game-structure-"));
 
   try {
-    const directories = ["src", "bots", "scripts", "tests/helpers"];
-    await Promise.all(
-      directories.map((directory) => mkdir(join(fixtureDirectory, directory), { recursive: true })),
-    );
-    await writeFile(join(fixtureDirectory, filePath), source);
+    const fixturePath = join(fixtureDirectory, filePath);
+    await mkdir(dirname(fixturePath), { recursive: true });
+    await writeFile(fixturePath, source);
 
     return await executeFile(process.execPath, [checkerPath], { cwd: fixtureDirectory });
   } finally {

@@ -7,18 +7,18 @@ description: "Write Resource Hunt bots fast: the single-file final bot and local
 
 ## Files
 
-| Kind             | File                       | Metadata `id`      | Handed in             |
-| ---------------- | -------------------------- | ------------------ | --------------------- |
-| Final bot        | `bots/<id>.ts`             | `<id>`             | yes                   |
-| Practice version | `bots/<id>-<setting>.ts`   | `<id>-<setting>`   | no, deleted by `pack` |
-| Practice rival   | `bots/<id>-<archetype>.ts` | `<id>-<archetype>` | no, deleted by `pack` |
+| Kind             | File                       | Metadata `id`      | Handed in |
+| ---------------- | -------------------------- | ------------------ | --------- |
+| Final bot        | `bots/<id>.ts`             | `<id>`             | yes       |
+| Practice version | `bots/<id>-<setting>.ts`   | `<id>-<setting>`   | no        |
+| Practice rival   | `bots/<id>-<archetype>.ts` | `<id>-<archetype>` | no        |
 
 Practice bots are your tools, not the team's decisions. Mention them in one line ("I added two practice rivals") and never ask the team to pick kinds or explain how they work.
 
 - Every bot is one self-contained file. Import only from `../src/sdk.ts`. Never import from another bot file; the final bot must work alone.
 - No tests are needed. The game CLI is the proof (see the [bot-arena skill](../bot-arena/SKILL.md)).
 - [AGENTS.md](../../../AGENTS.md) rules apply to every bot file and `check` enforces them: functions at most 30 lines and 3 parameters, nesting at most 2, and compound `if` conditions built only from named booleans (`const late = ...; if (hasCargo && late)`), at most three.
-- After writing, run `format`, then `check`. Fix structure failures by splitting functions.
+- After writing, run `check`. Fix structure failures by splitting functions. Use `format` when you want to apply Prettier.
 
 ## Decision-order skeleton
 

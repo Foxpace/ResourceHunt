@@ -9,10 +9,10 @@ export function countWorldAction(turn: WorldTurn, botId: string, key: keyof Matc
   if (stats) stats[key]++;
 }
 
-export function isGuarded(turn: WorldTurn, botId: string): boolean {
+export function isGuarded(turn: WorldTurn, botId: string, tick = turn.context.tick): boolean {
   return turn.state.defenses.some((defense) => {
     const matchesBot = defense.botId === botId;
-    const guardIsActive = defense.guardedUntilTick > turn.context.tick;
+    const guardIsActive = defense.guardedUntilTick > tick;
 
     return matchesBot && guardIsActive;
   });
@@ -76,7 +76,9 @@ export function interruptBot(turn: WorldTurn, bot: BotState): void {
 export function isExposedBot(turn: WorldTurn, bot: BotState): boolean {
   const isActive = !bot.disabled;
   const insideSafeArea = isSafeBase(turn, bot.position);
-  const cargoIsGuarded = isGuarded(turn, bot.id);
+  // Enemies act before bot turns, so check protection from the preceding bot phase.
+  const previousBotTick = Math.max(0, turn.context.tick - 1);
+  const cargoIsGuarded = isGuarded(turn, bot.id, previousBotTick);
 
   return isActive && !insideSafeArea && !cargoIsGuarded;
 }
