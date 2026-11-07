@@ -979,7 +979,7 @@ body[data-mode="tournament"] .match-only {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  flex: 1;
+  flex: 1 1 320px;
   min-width: 0;
 }
 .world-forecast,
@@ -996,6 +996,14 @@ body[data-mode="tournament"] .match-only {
   font: 600 11px var(--mono);
   white-space: nowrap;
 }
+.world-forecast {
+  max-width: 100%;
+  min-height: 30px;
+  height: auto;
+  padding: 6px 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .world-forecast.is-warning {
   border-color: rgb(243 211 110 / 0.3);
   color: #f6dc93;
@@ -1011,6 +1019,7 @@ body[data-mode="tournament"] .match-only {
 .status-beacon {
   width: 7px;
   height: 7px;
+  flex-shrink: 0;
   border-radius: 50%;
   background: #9fdfc0;
   box-shadow: 0 0 10px #9fdfc0;
