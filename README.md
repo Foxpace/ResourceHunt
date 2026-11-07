@@ -140,7 +140,7 @@ The [SDK reference](docs/sdk.md) documents every helper, action, state field, an
 
 Workers enforce decision timeouts. Bots run with local Node.js filesystem and network permissions.
 
-For bot discovery details, lifecycle, tests, and evaluation, read [bot development context](docs/bot-development.md). For the AI-native workshop, start with [WORKSHOP.md](WORKSHOP.md): five Copilot agents take a team from intention to design, plan, build, and review, with one human-approved Markdown artifact per stage. Bot agents may inspect the game but change only their own bot's code and artifacts.
+For bot discovery details, lifecycle, tests, and evaluation, read [bot development context](docs/bot-development.md). For the AI-native workshop, start with [WORKSHOP.md](WORKSHOP.md): five Copilot agents take a team from intention to design, plan, build, and hand-in, with one human-approved Markdown artifact per stage. Bot agents may inspect the game and run anything, but change only files in `bots/`.
 
 ## Rules
 

@@ -12,7 +12,7 @@ Approved by:
 
 ## What makes it different
 
-<!-- One sentence: how does this bot differ from `nearest`, which grabs the closest resource? -->
+<!-- One sentence: how does this bot differ from a simple bot (`nearest`) that grabs the closest resource and banks when full? -->
 
 ## Behaviour we expect to see
 
@@ -22,8 +22,9 @@ Approved by:
 
 ## How we will know it worked ✍️
 
-<!-- The team picks the targets. The runner's `bench` (practice maps) and `holdout` (unseen maps)
-tables measure them. A2 is required for every bot. -->
+<!-- The risk owner picks the target in relative words; the agent turns it into a number using the simple
+bot's measured scores (about 97 per match on average). The runner's `bench` (practice maps) and `holdout`
+(unseen maps, run once at the end of Build) measure them. A2 is required for every bot. -->
 
 | ID  | Check                                    | Target |
 | --- | ---------------------------------------- | ------ |
