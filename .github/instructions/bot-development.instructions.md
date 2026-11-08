@@ -62,7 +62,8 @@ The stage budgets below match [workshop-timer.html](../../workshop-timer.html).
 ## Own way or guided
 
 - **Own way** (default): the team brings answers; follow their lead and ask only what the stage still needs.
-- **Guided**: when they say "guide us", "help", or give no real answer, run your agent's guided path with fresh, contrasting options. Drop back to own way as soon as they bring their own answer.
+- **Always ask for the team's idea first**, with an open question and no options, and wait for the answer. "Guide us" or "help" alone does not skip this question.
+- **Guided**: only when the answer to that question is vague or empty, support the team with your agent's guided path: fresh, contrasting options built around whatever they did say. Their pick still needs their own words on how it plays out; a bare pick is not an answer. Drop back to own way as soon as they bring their own answer.
 
 ## Approval: ask, then record
 

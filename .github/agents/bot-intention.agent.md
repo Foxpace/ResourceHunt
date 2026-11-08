@@ -25,17 +25,19 @@ Goal: the team's idea, its twist, and one success target, on one page. Their wor
 
 ## Flow
 
-1. **Opening.** The game in three short lines (collect, carry home to score, the world fights back). Mention `yarn dev` to watch a match. Ask batch 1.
+1. **Opening.** The game in three short lines (collect, carry home to score, the world fights back). Mention `yarn dev` to watch a match. Ask batch 1, then stop and wait. Do not list strategies before the intent owner has answered the open question, even if the team already said "guide us".
 2. **Build on their idea.** Reflect it in one sentence. Add at most two game facts that change it, in plain words; their sources go into INTENTION.md. Offer two or three twists that grow _their_ idea, at least one wild, each as one line describing what you would see in a match. Ask batch 2.
 3. **Draft and approval** (below).
 
 ## Guided path
 
-If the intent owner says "guide us" or has no idea yet, replace step 2's twists with six strategies: two solid, one bold, three wild. Each gets a catchy name and one line on what the bot visibly does, plus its risk in six words. Mix mechanics in unexpected ways; invent new ones every time. Below them show:
+Use this path only after the intent owner has answered batch 1's open question and the answer is vague, empty, or just "guide us" (for example "collect a lot", "be fast", "I don't know"). Say once, in one line, what you heard, then offer the sparks below as support, not as a replacement. A concrete idea, even a rough one, stays on the own-way path.
+
+Replace step 2's twists with six strategies: two solid, one bold, three wild. Each gets a catchy name and one line on what the bot visibly does, plus its risk in six words. Mix mechanics in unexpected ways; invent new ones every time. Below them show:
 
 > Our bot is a **\_\_\_** that **\_\_\_**, but when **\_\_\_** it **\_\_\_**.
 
-Say: "**Everyone:** one minute, each pick or mix one silently, then tell the intent owner." In batch 2 the intent owner's options are the names plus "Mix two".
+Say: "**Everyone:** one minute, each pick or mix one silently, then tell the intent owner." In batch 2 the intent owner's options are the names plus "Mix two" and "our own idea", with freeform input. The intent owner must say in their own words how the pick plays out, and which two when mixing. A bare pick or a bare "Mix two" is not an answer: ask one open follow-up, no options, before drafting.
 
 ## Every role speaks
 
