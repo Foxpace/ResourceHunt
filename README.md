@@ -36,6 +36,16 @@ yarn dev
 
 Open [localhost:3000](http://127.0.0.1:3000). Use `PORT=3100 yarn dev` to change the port.
 
+## Container
+
+Run the app with Docker Compose and open [localhost:3000](http://127.0.0.1:3000):
+
+```sh
+docker compose up --build
+```
+
+Compose installs dependencies on startup and keeps `node_modules` in a named volume. Stop with `Ctrl+C`; run `docker compose down` to remove the container while keeping dependencies.
+
 The setup panel walks through the match in order. Pick **Single match** or **Tournament**, choose a biome from the live map previews, add copies of each strategy (up to 15 participants), and adjust the rules if you like. **Create match** builds the arena and tucks the setup away; reopen it with **Setup** in the top bar. Press the play button on the board, or <kbd>Space</kbd>, to start. Use <kbd>→</kbd> to step one tick. The timeline lets you review completed ticks. Import and export replays to inspect runs later.
 
 ## Benchmark

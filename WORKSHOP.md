@@ -4,25 +4,89 @@ After a 5-minute intro, your team has 50 minutes to build one bot that banks the
 
 ## Before you start
 
-You need Node.js 23.11.1+, Yarn 4.5.3, and VS Code with GitHub Copilot Chat in agent mode.
+Choose a container or native Node setup. Both require VS Code, GitHub Copilot Chat, a Copilot account, and a trusted workspace. Open the Command Palette with `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS). Replace `<repo-url>` with this repository's clone URL.
+
+### Container setup
+
+Use this setup to run VS Code, Copilot, Node, Yarn, and the game in one container; no host Node or Yarn is needed. Install Git, VS Code, [**Dev Containers**](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers), and **GitHub Copilot Chat**, then prepare one engine:
+
+| Host OS | Docker                                                                                                                                                                 | Podman                                                                                                                     |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Windows | Install Docker Desktop with the WSL 2 backend, then start Docker Desktop.                                                                                              | Install Podman Desktop and its WSL 2 prerequisites. Create and start a Podman machine using the app or the commands below. |
+| Linux   | Install Docker Engine using your distribution's instructions, start it, and configure access for your user without `sudo`. Docker Desktop for Linux is another option. | Install Podman using your distribution's package manager. Use rootless Podman directly; no Podman machine is needed.       |
+| macOS   | Install and start Docker Desktop. Choose the installer for your Mac's Intel or Apple Silicon processor.                                                                | Install Podman Desktop or the Podman CLI. Create and start a Podman machine using the app or the commands below.           |
+
+For Podman on Windows/macOS, run these in PowerShell or Terminal; skip `init` if a machine already exists:
 
 ```sh
-git clone <repo-url> && cd ResourceHunt
-corepack enable yarn
-yarn install
-yarn dev          # http://127.0.0.1:3000: watch the simple `nearest` bot play
+podman machine init
+podman machine start
 ```
 
-Open Copilot Chat and find the five **Bot …** agents in the agent picker. Open [workshop-timer.html](workshop-timer.html) in a browser to follow the stages.
+1. In a host terminal, verify the engine with `docker info` or `podman info`; fix connection or permission errors first.
+2. On Windows, open a regular checkout from PowerShell. For WSL, install VS Code's **WSL** extension and use **WSL: Open Folder in WSL**. Enable Docker Desktop's WSL integration and keep the checkout under `~/`, not `/mnt/c/`. With Windows-installed Podman, use Windows VS Code unless Podman is configured in WSL.
+3. For Podman only, open **Preferences: Open User Settings (JSON)** and add:
+
+   ```json
+   "dev.containers.dockerPath": "podman"
+   ```
+
+   If needed, use Podman's absolute path. This is a VS Code User setting, not a workspace setting.
+
+4. Clone the repository in PowerShell, a Linux/macOS terminal, or WSL:
+
+   ```sh
+   git clone <repo-url> ResourceHunt
+   cd ResourceHunt
+   ```
+
+   Open the folder in VS Code with **File > Open Folder** or `code .`. On macOS, install the `code` command through **Shell Command: Install 'code' command in PATH** if needed.
+
+5. Trust the workspace and run **Dev Containers: Reopen in Container**. The first build downloads Node 24, installs Copilot Chat, enables the pinned Yarn version, and installs dependencies; wait for setup to finish.
+6. Sign in to Copilot and enable Chat in the container if prompted. Select **Bot Intention** in Chat; this repository provides all five **Bot ...** agents and their skills.
+7. Open **Terminal: New Terminal** and run all workshop commands in the container's Linux shell:
+
+   ```sh
+   node --version
+   yarn --version
+   yarn bots
+   yarn dev
+   ```
+
+8. Open port 3000 from VS Code's **Ports** tab. If occupied, stop the server, run `PORT=3100 yarn dev`, forward port 3100, and open its forwarded localhost address; the server rejects untrusted Host headers.
+9. Run the workshop with a **Bot ...** agent. Commands and approval hooks run in the container; bot files, workflow artifacts, and ZIPs in `results/` stay in the checkout.
+10. To leave, run **Dev Containers: Reopen Folder Locally**. Your checkout and results remain on your computer.
+
+Stop the server with `Ctrl+C`; return with **Dev Containers: Reopen in Container**. Source stays in the checkout and dependencies in a container volume.
+
+The [container configuration](.devcontainer/devcontainer.json) pins the Node 24 Bookworm image by a multi-architecture SHA-256 digest for Intel/AMD and Apple Silicon. Digest pins do not update automatically; after changing the tag and digest, run **Dev Containers: Rebuild Container**.
+
+### Native Node
+
+Install Git and Node.js 24 LTS (the game requires 23.11.1+). Corepack selects the pinned Yarn 4.5.3. Run these commands in PowerShell or a Linux/macOS terminal:
+
+```sh
+git clone <repo-url> ResourceHunt
+cd ResourceHunt
+corepack enable yarn
+yarn install
+yarn dev
+```
+
+If `corepack` is missing, run `npm install --global corepack`, then retry `corepack enable yarn`. If PowerShell blocks `.ps1` launchers, use `npm.cmd`, `corepack.cmd`, and `yarn.cmd` instead of changing the execution policy.
+
+Open [localhost:3000](http://127.0.0.1:3000) and stop the server with `Ctrl+C`. To use port 3100, run `PORT=3100 yarn dev` on Linux/macOS or `$env:PORT = "3100"; yarn dev` in PowerShell; clear the Windows override with `Remove-Item Env:PORT`.
+
+In Copilot Chat, select one of the five **Bot …** agents. Open [workshop-timer.html](workshop-timer.html) in a browser for the stage timer.
 
 ## The game in 60 seconds
 
-- Bots move on a grid for 300 turns, one action per turn. Terrain costs 1 to 3 turns per tile.
-- They `grab` resources: **ore** is worth 2 points and weighs 1, **crystal** 7 and 2, **relic** 14 and 3. A bag holds 8 weight.
-- **Only banked resources score.** Cargo counts once the bot returns `home` or reaches an outpost it captured. Carried cargo scores nothing.
-- The world fights back. Rivals `steal`, drones chase loaded bots, storms spill cargo, and guardians protect rich caches. Bots can `guard`, `strike`, set traps, and capture outposts.
-- There are eight map types (biomes): river, valley, desert, moon, volcanic, islands, tundra, and forest maze. Your bot should work on all of them.
-- Each decision must finish within 100 ms, or the bot is disabled for the match.
+- Bots get 300 turns, one action per turn; terrain takes 1-3 turns per tile.
+- `grab` resources: **ore** is 2 points/1 weight, **crystal** 7/2, and **relic** 14/3. Bags hold 8 weight.
+- **Only banked resources score.** Cargo banks at `home` or a captured outpost; carried cargo scores nothing.
+- Rivals can `steal`; drones chase loaded bots, storms spill cargo, and guardians protect rich caches. Bots can `guard`, `strike`, set traps, and capture outposts.
+- Bots should work across all eight biomes: river, valley, desert, moon, volcanic, islands, tundra, and forest maze.
+- Each decision has a 100 ms limit; exceeding it disables the bot for that match.
 
 ## Roles: rotate after Design and after Build
 
@@ -98,8 +162,8 @@ Your bot is ready when the risk owner has approved `REVIEW.md`. Bot Hand-in then
 
 **Before the day**
 
-- On a participant-like machine, run `node --test .github/bot-workflow/guard.test.mjs`. Then, in **Bot Intention**, ask the agent to edit `src/sdk.ts` (it must be blocked). Also ask **Bot Design** to start without an approved intention (it must be blocked). Check that Bot Intention asks before it records an approval. If they are not, Copilot is not running agent hooks in that setup; check that the VS Code and Copilot versions support hooks in custom agents.
-- Make sure participants can clone, run `yarn install`, and run `yarn dev`.
+- On a participant-like machine, run `node --test .github/bot-workflow/guard.test.mjs` in the VS Code terminal. Then, in **Bot Intention**, ask the agent to edit `src/sdk.ts` (it must be blocked). Also ask **Bot Design** to start without an approved intention (it must be blocked). Check that Bot Intention asks before it records an approval. If they are not, Copilot is not running agent hooks in that setup; check that the VS Code and Copilot versions support hooks in custom agents. Repeat this check in the exact environment and session type participants will use. Hook timeouts can fall through to normal permissions; hooks are not a security sandbox.
+- Make sure participants can clone, start their chosen environment, and run the game before the session.
 - The hook protects files, not the terminal. Agents may run any command so they can benchmark freely; they are told not to change game source from the terminal.
 
 **Intro (5 minutes)**
@@ -107,7 +171,6 @@ Your bot is ready when the risk owner has approved `REVIEW.md`. Bot Hand-in then
 - Show one match with `yarn dev` on the projector.
 - Explain the three roles and the rotation.
 - Introduce the one rule that matters: _agents act up to the gate, and humans pass it._
-
 **During the workshop**
 
 - Start [workshop-timer.html](workshop-timer.html) on the projector when the intro ends. It shows the agent to open, the goal, and when to rotate.

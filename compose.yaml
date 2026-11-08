@@ -1,0 +1,23 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /workspaces/ResourceHunt
+    user: node
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+      YARN_INSTALL_STATE_PATH: /tmp/resource-hunt-install-state.gz
+    volumes:
+      - .:/workspaces/ResourceHunt
+      - node_modules:/workspaces/ResourceHunt/node_modules
+    ports:
+      - "3000:3000"
+    command: ["sh", "-lc", "yarn install --immutable && yarn dev"]
+
+volumes:
+  node_modules:

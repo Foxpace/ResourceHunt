@@ -1,0 +1,24 @@
+{
+  "name": "Resource Hunt",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+  "containerUser": "node",
+  "remoteUser": "node",
+  "runArgs": ["--cap-drop=ALL", "--security-opt=no-new-privileges:true"],
+  "mounts": [
+    "source=resource-hunt-${devcontainerId}-node-modules,target=${containerWorkspaceFolder}/node_modules,type=volume"
+  ],
+  "containerEnv": {
+    "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+    "YARN_INSTALL_STATE_PATH": "/tmp/resource-hunt-install-state.gz"
+  },
+  "postCreateCommand": "yarn install --immutable",
+  "forwardPorts": [3000],
+  "customizations": {
+    "vscode": {
+      "extensions": ["GitHub.copilot-chat"]
+    }
+  }
+}
