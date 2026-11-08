@@ -53,7 +53,15 @@ export function printStandings<T extends { id: string; statistics?: object }>(
 ) {
   const selected = flags.get("stats")?.split(",");
   console.table(rows.map(({ statistics, ...row }) => filterColumns(row, selected)));
+  printStatistics(rows, selected);
+}
 
+interface StatisticsRow {
+  id: string;
+  statistics?: object;
+}
+
+function printStatistics(rows: StatisticsRow[], selected?: string[]): void {
   const fields = selected?.filter((field) => counterNames.includes(field)) ?? counterNames;
   if (!fields.length) return;
 

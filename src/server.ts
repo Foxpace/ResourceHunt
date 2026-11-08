@@ -38,6 +38,12 @@ async function createWebRequest(
   const bodylessRequest = method === "GET" || method === "HEAD";
   if (bodylessRequest) return new Request(url, { method, headers, signal });
 
+  const body = await readRequestBody(request);
+
+  return new Request(url, { method, headers, signal, body });
+}
+
+async function readRequestBody(request: IncomingMessage): Promise<Buffer<ArrayBuffer>> {
   const chunks: Buffer[] = [];
   let size = 0;
 
@@ -49,7 +55,7 @@ async function createWebRequest(
     chunks.push(buffer);
   }
 
-  return new Request(url, { method, headers, signal, body: Buffer.concat(chunks) });
+  return Buffer.concat(chunks);
 }
 
 export async function startServer(port = Number(process.env.PORT ?? 3000), watch = false) {
@@ -68,14 +74,7 @@ export async function startServer(port = Number(process.env.PORT ?? 3000), watch
   return {
     server,
     port: address.port,
-    async dispose() {
-      api.dispose();
-      const closed = new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      );
-      server.closeAllConnections();
-      await Promise.all([closed, assets.dispose()]);
-    },
+    dispose: () => disposeHttpResources(server, { api, assets }),
   };
 }
 
@@ -106,6 +105,16 @@ type WebAssets = Awaited<ReturnType<typeof createWebAssets>>;
 interface HttpResources {
   api: GameApi;
   assets: WebAssets;
+}
+
+async function disposeHttpResources(server: Server, resources: HttpResources): Promise<void> {
+  const { api, assets } = resources;
+  api.dispose();
+  const closed = new Promise<void>((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+  server.closeAllConnections();
+  await Promise.all([closed, assets.dispose()]);
 }
 
 async function handleHttpRequest(
@@ -143,17 +152,21 @@ async function routeHttpRequest(request: Request, resources: HttpResources): Pro
   const { api, assets } = resources;
   const path = new URL(request.url).pathname;
   if (path.startsWith("/api/")) return api.fetch(request);
-  else {
-    const requestsBody = request.method === "GET";
-    const requestsHeaders = request.method === "HEAD";
-    const canServeAsset = requestsBody || requestsHeaders;
-    const asset = canServeAsset ? await assets.get(path) : undefined;
-    return asset
-      ? new Response(asset.body as BodyInit, {
-          headers: { "Content-Type": asset.contentType, "Cache-Control": "no-store" },
-        })
-      : Response.json({ error: "Not found" }, { status: 404 });
-  }
+
+  return serveWebAsset(request, assets, path);
+}
+
+async function serveWebAsset(request: Request, assets: WebAssets, path: string): Promise<Response> {
+  const requestsBody = request.method === "GET";
+  const requestsHeaders = request.method === "HEAD";
+  const canServeAsset = requestsBody || requestsHeaders;
+  const asset = canServeAsset ? await assets.get(path) : undefined;
+
+  return asset
+    ? new Response(asset.body as BodyInit, {
+        headers: { "Content-Type": asset.contentType, "Cache-Control": "no-store" },
+      })
+    : Response.json({ error: "Not found" }, { status: 404 });
 }
 
 async function listenServer(server: Server, port: number, resources: HttpResources): Promise<void> {

@@ -179,6 +179,14 @@ export function findBestTrip(
     return plan.feasible ? plan : null;
   }
 
+  return planBestCandidateTrip(context, candidates);
+}
+
+function planBestCandidateTrip(
+  context: TripContext,
+  candidates: readonly ResourcePile[],
+): TripPlan | null {
+  const { state, units } = context;
   const piles = candidates.filter((pile) => (findTripResource(state, pile)?.amount ?? 0) >= units);
   if (!piles.length) return null;
   const outbound = searchRoutesFrom(state.map, state.self.position);

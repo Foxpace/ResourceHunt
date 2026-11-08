@@ -74,19 +74,21 @@ export class ApplicationView {
   }
 
   private renderApplication() {
-    const state = this.model.state;
     this.renderBotOptions();
+    this.renderSetupControls();
+    this.renderMessage(this.model.state.message);
+    this.renderMatch();
+    this.renderFinalResults();
+  }
 
+  private renderSetupControls(): void {
+    const state = this.model.state;
     button("refresh-bots").disabled = state.refreshing;
     button("generate").disabled = !state.canGenerate;
     this.renderTournamentButton();
     getElement("generate").querySelector("span")!.textContent = state.generating
       ? "Creating…"
       : "Create match";
-
-    this.renderMessage(state.message);
-    this.renderMatch();
-    this.renderFinalResults();
   }
 
   private renderMessage(message: string) {
@@ -185,35 +187,52 @@ export class ApplicationView {
   private bindResultOptions(): void {
     const fields = getElement("result-columns");
     for (const name of configurableResultColumns) {
-      const label = document.createElement("label");
-      label.className = "switch";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = true;
-      checkbox.onchange = () => {
-        if (checkbox.checked) this.hiddenResultColumns.delete(name);
-        else this.hiddenResultColumns.add(name);
-        this.renderFinalResults(true);
-        this.tournament.setHiddenColumns(this.hiddenResultColumns);
-      };
-      label.append(checkbox, document.createElement("i"), name);
-      fields.append(label);
+      fields.append(this.createResultColumnToggle(name));
     }
     input("standout-badges").onchange = () => this.renderFinalResults(true);
     input("random-badges").onchange = () => this.renderFinalResults(true);
   }
 
-  private renderControls() {
+  private createResultColumnToggle(name: string): HTMLLabelElement {
+    const label = document.createElement("label");
+    label.className = "switch";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = true;
+    checkbox.onchange = () => this.setResultColumnVisible(name, checkbox.checked);
+    label.append(checkbox, document.createElement("i"), name);
+    return label;
+  }
+
+  private setResultColumnVisible(name: string, visible: boolean): void {
+    if (visible) this.hiddenResultColumns.delete(name);
+    else this.hiddenResultColumns.add(name);
+
+    this.renderFinalResults(true);
+    this.tournament.setHiddenColumns(this.hiddenResultColumns);
+  }
+
+  private renderControls(): void {
     const controls = this.model.playbackControls;
+    this.renderPlayButton(controls);
+    button("step").disabled = !controls.canStep;
+    button("stop-match").disabled = !controls.canStop;
+    button("export").disabled = !controls.canExport;
+    this.renderTimeline(controls);
+    this.renderPlaybackStatus(controls);
+    this.renderOverlays();
+  }
+
+  private renderPlayButton(controls: ApplicationModel["playbackControls"]): void {
     const play = button("play");
     play.disabled = !controls.canPlay;
     play.querySelector("span")!.textContent = controls.playLabel;
     const icon = { Pause: "#i-pause", Replay: "#i-replay" }[controls.playLabel] ?? "#i-play";
     play.querySelector("use")!.setAttribute("href", icon);
     play.classList.toggle("is-playing", this.model.playback.isPlaying);
-    button("step").disabled = !controls.canStep;
-    button("stop-match").disabled = !controls.canStop;
-    button("export").disabled = !controls.canExport;
+  }
+
+  private renderTimeline(controls: ApplicationModel["playbackControls"]): void {
     const timeline = input("timeline");
     timeline.disabled = !controls.canSeek;
     timeline.max = String(controls.maxTick);
@@ -222,10 +241,12 @@ export class ApplicationView {
       "--progress",
       `${(controls.tick / Math.max(1, controls.maxTick)) * 100}%`,
     );
+  }
+
+  private renderPlaybackStatus(controls: ApplicationModel["playbackControls"]): void {
     const mode = getElement("playback-mode");
     mode.hidden = !controls.status;
     if (mode.textContent !== controls.status) mode.textContent = controls.status;
-    this.renderOverlays();
   }
 
   private renderOverlays(): void {
@@ -249,6 +270,11 @@ export class ApplicationView {
 
     getElement("map-empty").hidden = true;
     this.renderMatchContext(state);
+    this.renderMatchPanels(state);
+    this.mapView.update(state);
+  }
+
+  private renderMatchPanels(state: Snapshot): void {
     getElement("tick-label").textContent = `${state.tick} / ${state.config.ticks}`;
     getElement("standings").innerHTML = renderStandings(state);
     this.renderStatistics();
@@ -258,13 +284,17 @@ export class ApplicationView {
     );
     this.renderControls();
     getElement("world-status").innerHTML = renderWorldStatus(state);
-    this.mapView.update(state);
   }
 
   private renderMatchContext(state: Snapshot): void {
     const { config } = state;
     getElement("competition-rules").textContent =
       `Capture: ${config.captureTurns} turns; immunity: ${config.captureImmunityTicks} following rounds. ${config.stealing ? `Theft cooldown: ${config.stealCooldownTicks} ticks. Both participants are protected for the following tick.` : "Cargo theft disabled."}`;
+    this.renderMapContext(state);
+  }
+
+  private renderMapContext(state: Snapshot): void {
+    const { config } = state;
     getElement("map").setAttribute(
       "aria-label",
       `${BIOMES[config.biome].name} map with ${state.hotspots.length} hotspots and ${state.outposts.length} outposts`,
@@ -284,16 +314,21 @@ export class ApplicationView {
     panel.hidden = false;
     if (!panel.open) return;
 
+    const botId = this.renderStatisticsSelector(state.bots);
+    getElement("bot-statistics-values").innerHTML = renderBotStatistics(state, botId);
+  }
+
+  private renderStatisticsSelector(bots: Snapshot["bots"]): string {
     const select = getElement<HTMLSelectElement>("statistics-bot");
-    const options = renderStatisticsOptions(state.bots);
-    if (this.renderedStatisticsOptions !== options) {
-      this.renderedStatisticsOptions = options;
-      const selected = state.bots.some((bot) => bot.id === select.value);
-      const id = selected ? select.value : (state.bots[0]?.id ?? "");
-      select.innerHTML = options;
-      select.value = id;
-    }
-    getElement("bot-statistics-values").innerHTML = renderBotStatistics(state, select.value);
+    const options = renderStatisticsOptions(bots);
+    if (this.renderedStatisticsOptions === options) return select.value;
+
+    this.renderedStatisticsOptions = options;
+    const selected = bots.some((bot) => bot.id === select.value);
+    const botId = selected ? select.value : (bots[0]?.id ?? "");
+    select.innerHTML = options;
+    select.value = botId;
+    return select.value;
   }
 
   private observeMap(): void {
@@ -311,23 +346,27 @@ export class ApplicationView {
   }
 
   private bindConfigEvents(): void {
-    getElement("config-form").addEventListener("submit", (event) => {
-      event.preventDefault();
-      if (!this.model.state.canGenerate) return;
-
-      this.setup.setCollapsed(true);
-      if (this.setup.mode === "tournament") this.runTournament();
-      else void this.generateMatch();
-    });
+    getElement("config-form").addEventListener("submit", (event) => this.submitConfig(event));
     button("refresh-bots").onclick = () => {
       void this.model.dispatch({ type: "refreshBots" });
     };
-    button("tournament-setup").onclick = () => {
-      this.setup.setMode("tournament");
-      this.setup.setCollapsed(false);
-      getElement("step-tournament").scrollIntoView({ behavior: "smooth", block: "center" });
-      input("tournament-win-target").focus({ preventScroll: true });
-    };
+    button("tournament-setup").onclick = () => this.openTournamentSetup();
+  }
+
+  private submitConfig(event: Event): void {
+    event.preventDefault();
+    if (!this.model.state.canGenerate) return;
+
+    this.setup.setCollapsed(true);
+    if (this.setup.mode === "tournament") this.runTournament();
+    else void this.generateMatch();
+  }
+
+  private openTournamentSetup(): void {
+    this.setup.setMode("tournament");
+    this.setup.setCollapsed(false);
+    getElement("step-tournament").scrollIntoView({ behavior: "smooth", block: "center" });
+    input("tournament-win-target").focus({ preventScroll: true });
   }
 
   private togglePlayback(): void {
@@ -387,17 +426,19 @@ export class ApplicationView {
   }
 
   private bindReplayEvents(): void {
-    input("replay-file").onchange = async () => {
-      const file = input("replay-file").files?.[0];
-      if (!file) return;
-
-      this.showTab("arena");
-      await this.model.dispatch({ type: "importReplay", file });
-      input("replay-file").value = "";
-    };
+    input("replay-file").onchange = () => this.importReplay();
     button("export").onclick = () => {
       void this.model.dispatch({ type: "exportReplay", saveReplay: downloadReplay });
     };
+  }
+
+  private async importReplay(): Promise<void> {
+    const file = input("replay-file").files?.[0];
+    if (!file) return;
+
+    this.showTab("arena");
+    await this.model.dispatch({ type: "importReplay", file });
+    input("replay-file").value = "";
   }
 }
 

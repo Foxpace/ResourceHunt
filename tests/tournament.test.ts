@@ -59,6 +59,31 @@ test("individual match results still rank by points", () => {
   assert.ok(html.indexOf("<strong>Points</strong>") < html.indexOf("<strong>Winner</strong>"));
 });
 
+test("in-progress results omit the podium and badge sections", () => {
+  // Given
+  const totals = summarizeTournament(rankingRounds());
+
+  // When
+  const html = renderResults(totals, "ranking", { mode: "in-progress" });
+
+  // Then
+  assert.match(html, /results-table/);
+  assert.doesNotMatch(html, /podium|achievement-list|<h3>/);
+});
+
+test("result tables honor hidden columns", () => {
+  // Given
+  const totals = summarizeTournament(rankingRounds());
+  const hiddenColumns = new Set(["Tiles walked"]);
+
+  // When
+  const html = renderResults(totals, "ranking", { hiddenColumns });
+
+  // Then
+  assert.doesNotMatch(html, /Tiles walked/);
+  assert.match(html, /Gathered/);
+});
+
 function rankingRounds(): TournamentRound[] {
   return [
     [2, 1],

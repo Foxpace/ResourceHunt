@@ -48,6 +48,18 @@ export class NaturalEventScheduler {
   }
 
   private announceHazard(turn: WorldTurn, startsAt: number): void {
+    const hazard = this.createHazard(turn, startsAt);
+    if (!hazard) return;
+
+    turn.state.hazards.push(hazard);
+    recordWorldEvent(turn, {
+      message: `${hazard.kind} forecast · impact at tick ${startsAt}`,
+      position: hazard.center,
+      effect: "guard",
+    });
+  }
+
+  private createHazard(turn: WorldTurn, startsAt: number): NaturalHazard | undefined {
     const candidates = [...mapCells(turn.context.map, 1)].filter((position) =>
       isHazardSite(turn, position),
     );
@@ -59,7 +71,7 @@ export class NaturalEventScheduler {
     const cells = candidates.filter(
       (position) => manhattanDistance(position, center) <= NATURAL_HAZARD_RADIUS,
     );
-    const hazard = {
+    return {
       id: `hazard-${this.sequence}`,
       kind,
       center,
@@ -68,12 +80,6 @@ export class NaturalEventScheduler {
       startsAt,
       endsAt: startsAt + 7,
     };
-    turn.state.hazards.push(hazard);
-    recordWorldEvent(turn, {
-      message: `${kind} forecast · impact at tick ${startsAt}`,
-      position: center,
-      effect: "guard",
-    });
   }
 }
 

@@ -52,17 +52,29 @@ async function runBotCommand(command: string, flags: ReadonlyMap<string, string>
   const ids = flags.get("bots")?.split(",") ?? getDefaultBotIds(catalog);
   const bots = selectBots(catalog, ids);
   const config = configFromFlags(flags);
-  const { payload, hasBotErrors } =
-    command === "play"
-      ? await playMatch(bots, config, flags)
-      : command === "tournament"
-        ? await runCliTournament(bots, config, flags)
-        : await benchmarkMatches(bots, config, flags);
+  const { payload, hasBotErrors } = await runMatchCommand(command, { bots, config }, flags);
 
   const hasErrors = catalog.errors.length > 0 || hasBotErrors;
   await writeCommandOutput(payload, flags);
 
   return hasErrors ? 2 : 0;
+}
+
+interface SelectedMatch {
+  bots: BotDescriptor[];
+  config: GameConfig;
+}
+
+async function runMatchCommand(
+  command: string,
+  match: SelectedMatch,
+  flags: ReadonlyMap<string, string>,
+) {
+  const { bots, config } = match;
+  if (command === "play") return playMatch(bots, config, flags);
+  if (command === "tournament") return runCliTournament(bots, config, flags);
+
+  return benchmarkMatches(bots, config, flags);
 }
 
 async function writeJson(path: string, data: unknown, label: string): Promise<void> {

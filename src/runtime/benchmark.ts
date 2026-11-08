@@ -69,10 +69,19 @@ export async function runBenchmark(
     onProgress?.(index + 1);
   }
 
-  const standings = lineup.map((bot) => summarizeBot(bot, results));
+  return summarizeBenchmark(lineup, { matches, config: baseConfig, results }, timing);
+}
+
+function summarizeBenchmark(
+  bots: BotDescriptor[],
+  summary: Pick<BenchmarkResult, "matches" | "config" | "results">,
+  timing?: ActionTiming,
+): BenchmarkResult {
+  const { matches, config, results } = summary;
+  const standings = bots.map((bot) => summarizeBot(bot, results));
   standings.sort((first, second) => second.meanScore - first.meanScore);
 
-  const result = { matches, config: baseConfig, standings, results };
+  const result = { matches, config, standings, results };
   if (!timing) return result;
 
   const ticks = results.reduce((sum, match) => sum + match.ticks, 0);

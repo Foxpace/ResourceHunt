@@ -52,6 +52,12 @@ function isNamedMember(member: ts.ClassElement, name: string): boolean {
 }
 
 function readMetadata(botClass: ts.ClassLikeDeclaration): BotMetadata {
+  const values = readMetadataValues(botClass);
+
+  return validateMetadataValues(values);
+}
+
+function readMetadataValues(botClass: ts.ClassLikeDeclaration): Map<string, string> {
   const fields = botClass.members.filter((member) =>
     hasModifier(member, ts.SyntaxKind.StaticKeyword),
   );
@@ -67,6 +73,10 @@ function readMetadata(botClass: ts.ClassLikeDeclaration): BotMetadata {
   const values = new Map(initializer.properties.map(readMetadataProperty));
   if (values.size !== initializer.properties.length) throw invalidMetadata();
 
+  return values;
+}
+
+function validateMetadataValues(values: ReadonlyMap<string, string>): BotMetadata {
   const id = values.get("id") ?? "";
   const name = values.get("name") ?? "";
   const description = values.get("description");

@@ -176,14 +176,18 @@ export class ApplicationModel {
       const catalog = await this.client.bots();
       if (this.disposed) return;
 
-      this.catalog = catalog.bots;
-      const selected = initial ? catalog.defaultBotIds : this.selectedBotIds;
-      this.selectedBotIds = selected.filter((id) => this.catalog.some((bot) => bot.id === id));
-      if (catalog.errors.length)
-        this.message = catalog.errors.map((error) => `${error.file}: ${error.error}`).join(" · ");
+      this.applyCatalog(catalog, initial);
     } finally {
       if (!this.disposed) this.refreshing = false;
     }
+  }
+
+  private applyCatalog(catalog: BotCatalogResponse, initial: boolean): void {
+    this.catalog = catalog.bots;
+    const selected = initial ? catalog.defaultBotIds : this.selectedBotIds;
+    this.selectedBotIds = selected.filter((id) => this.catalog.some((bot) => bot.id === id));
+    if (catalog.errors.length)
+      this.message = catalog.errors.map((error) => `${error.file}: ${error.error}`).join(" · ");
   }
 
   private async generateMatch(request: CreateGameRequest): Promise<void> {

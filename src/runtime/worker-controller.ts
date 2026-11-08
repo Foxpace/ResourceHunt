@@ -99,18 +99,20 @@ export class WorkerBot implements BotController {
       { type: "init", source: this.source, seed },
       3000,
     );
-    if (workerResponse.type !== "ready") {
-      this.dispose();
-      throw new Error(
-        workerResponse.type === "error"
-          ? workerResponse.error
-          : "Unexpected worker response during initialization",
-      );
-    }
-
-    this.assignInstanceMetadata(workerResponse.metadata);
+    this.assignInstanceMetadata(this.readInitializationMetadata(workerResponse));
 
     return this.metadata;
+  }
+
+  private readInitializationMetadata(response: WorkerResponse): BotMetadata {
+    if (response.type === "ready") return response.metadata;
+
+    this.dispose();
+    throw new Error(
+      response.type === "error"
+        ? response.error
+        : "Unexpected worker response during initialization",
+    );
   }
 
   private assignInstanceMetadata(metadata: BotMetadata): void {
@@ -132,11 +134,8 @@ export class WorkerBot implements BotController {
       { type: "act", observation: this.prepareObservation(observation) },
       this.decisionTimeoutMs,
     );
-    if (workerResponse.type === "decision") return { action: workerResponse.action };
-    if (workerResponse.type === "error")
-      return { action: null, error: workerResponse.error, disabled: workerResponse.disabled };
 
-    return { action: null, error: "Unexpected worker response during decision", disabled: true };
+    return readDecisionResponse(workerResponse);
   }
 
   private prepareObservation(observation: Observation): WorkerObservation {
@@ -156,4 +155,12 @@ export class WorkerBot implements BotController {
     this.resolvePendingRequest({ type: "error", error: "Bot worker stopped", disabled: true });
     void this.worker.terminate();
   }
+}
+
+function readDecisionResponse(response: WorkerResponse): Decision {
+  if (response.type === "decision") return { action: response.action };
+  if (response.type === "error")
+    return { action: null, error: response.error, disabled: response.disabled };
+
+  return { action: null, error: "Unexpected worker response during decision", disabled: true };
 }

@@ -51,6 +51,14 @@ export function renderResults(
   seed: string,
   options: ResultOptions = {},
 ): string {
+  const table = renderResultTable(rows, options);
+  if (options.mode === "in-progress") return table;
+
+  const podium = options.podium === false ? "" : renderPodium(rows, options);
+  return podium + "<h3>Standings</h3>" + table + renderAwards(rows, seed, options.badges);
+}
+
+function renderResultTable(rows: ResultRow[], options: ResultOptions): string {
   const mode = options.mode ?? "match";
   const columns = resultColumns(mode !== "match").filter(
     ({ label }) => !options.hiddenColumns?.has(label),
@@ -60,11 +68,8 @@ export function renderResults(
     `<th scope="row">${escapeHtml(row.name)}</th>`,
     ...columns.map(({ count }) => `<td>${escapeHtml(count(row) ?? "—")}</td>`),
   ]);
-  const table = renderTable(["Bot", ...columns.map(({ label }) => label)], body);
-  if (mode === "in-progress") return table;
 
-  const podium = options.podium === false ? "" : renderPodium(rows, options);
-  return podium + "<h3>Standings</h3>" + table + renderAwards(rows, seed, options.badges);
+  return renderTable(["Bot", ...columns.map(({ label }) => label)], body);
 }
 
 function rankedResults(rows: ResultRow[], options: ResultOptions): ResultRow[] {

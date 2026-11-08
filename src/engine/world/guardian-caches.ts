@@ -6,6 +6,7 @@ import { countWorldAction, recordWorldAction } from "./shared.ts";
 import {
   guardianPosition,
   type GuardianCache,
+  type ScavengerDrone,
   type WorldCommand,
   type WorldTurn,
 } from "./types.ts";
@@ -23,13 +24,9 @@ export function strikeNeutralEnemy(turn: WorldTurn, command: WorldCommand): void
     return;
   }
   if (drone?.health) {
-    drone.health--;
-    countWorldAction(turn, bot.id, "droneStrikes");
-    if (!drone.health) releaseDroneCargo(turn, drone);
+    strikeDrone(turn, drone, bot.id);
   } else if (cache?.guardianHealth) {
-    cache.guardianHealth--;
-    countWorldAction(turn, bot.id, "guardianStrikes");
-    if (!cache.guardianHealth) countWorldAction(turn, bot.id, "guardiansDefeated");
+    strikeGuardian(turn, cache, bot.id);
   } else {
     bot.lastAction = "Enemy already disabled";
     return;
@@ -37,6 +34,18 @@ export function strikeNeutralEnemy(turn: WorldTurn, command: WorldCommand): void
 
   bot.lastAction = `Struck ${action.targetId}`;
   recordWorldAction(turn, bot, "strike");
+}
+
+function strikeDrone(turn: WorldTurn, drone: ScavengerDrone, botId: string): void {
+  drone.health--;
+  countWorldAction(turn, botId, "droneStrikes");
+  if (!drone.health) releaseDroneCargo(turn, drone);
+}
+
+function strikeGuardian(turn: WorldTurn, cache: GuardianCache, botId: string): void {
+  cache.guardianHealth--;
+  countWorldAction(turn, botId, "guardianStrikes");
+  if (!cache.guardianHealth) countWorldAction(turn, botId, "guardiansDefeated");
 }
 
 export function lootGuardianCache(turn: WorldTurn, command: WorldCommand): void {

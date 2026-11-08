@@ -96,6 +96,18 @@ export class StrategicSitePlanner {
     candidates: SiteCandidate[],
     placement: SitePlacement,
   ): SiteCandidate[] {
+    const closestContestedSite = this.findStartingSite(candidates, placement);
+    const startingLayouts = [[], [closestContestedSite]];
+    const layouts = startingLayouts.map((layout) =>
+      this.completeLayout(candidates, layout, placement),
+    );
+
+    return layouts.sort(
+      (first, second) => this.scoreLayout(first, placement) - this.scoreLayout(second, placement),
+    )[0]!;
+  }
+
+  private findStartingSite(candidates: SiteCandidate[], placement: SitePlacement): SiteCandidate {
     const separatedCandidates = this.getCandidatesAwayFromSites(candidates, [], placement);
     const contestedCandidates = separatedCandidates.filter(
       (candidate) => candidate.contestPenalty <= 0.2,
@@ -103,23 +115,24 @@ export class StrategicSitePlanner {
     const startingCandidates = contestedCandidates.length
       ? contestedCandidates
       : separatedCandidates;
-    const closestContestedSite = [...startingCandidates].sort(
+
+    return [...startingCandidates].sort(
       (first, second) =>
         first.nearestArrival - second.nearestArrival || first.tieBreaker - second.tieBreaker,
     )[0]!;
-    const startingLayouts = [[], [closestContestedSite]];
-    const layouts = startingLayouts.map((layout) => {
-      while (layout.length < placement.count) {
-        layout.push(this.chooseBestCandidate(candidates, layout, placement));
-      }
-      this.balanceLayout(candidates, layout, placement);
+  }
 
-      return layout;
-    });
+  private completeLayout(
+    candidates: SiteCandidate[],
+    layout: SiteCandidate[],
+    placement: SitePlacement,
+  ): SiteCandidate[] {
+    while (layout.length < placement.count) {
+      layout.push(this.chooseBestCandidate(candidates, layout, placement));
+    }
+    this.balanceLayout(candidates, layout, placement);
 
-    return layouts.sort(
-      (first, second) => this.scoreLayout(first, placement) - this.scoreLayout(second, placement),
-    )[0]!;
+    return layout;
   }
 
   private getCandidatesAwayFromBases(placement: SitePlacement): SiteCandidate[] {

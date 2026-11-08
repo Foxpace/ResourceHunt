@@ -20,16 +20,24 @@ export function drawMap(canvas: HTMLCanvasElement, state: Snapshot, scene: MapSc
   const grid = prepareCanvasGrid(canvas, state);
   if (!grid) return;
 
-  const { animation, hover } = scene;
+  const { animation } = scene;
   drawCachedTerrain(canvas, grid, state);
   drawLiquidMotion(grid, state, animation?.time ?? 0);
-  const sites = new BoardSites(grid, state, animation?.time);
+  drawSites(grid, state, animation?.time);
+  new WorldOverlays(grid, state, animation).draw();
+  drawUnits(grid, state, scene);
+}
+
+function drawSites(grid: CanvasGrid, state: Snapshot, time?: number): void {
+  const sites = new BoardSites(grid, state, time);
   for (const hotspot of state.hotspots) sites.drawHotspot(hotspot);
   for (const bot of state.bots) sites.drawBase(bot);
   for (const outpost of state.outposts) sites.drawOutpost(outpost);
   for (const resource of state.resources) sites.drawResource(resource);
+}
 
-  new WorldOverlays(grid, state, animation).draw();
+function drawUnits(grid: CanvasGrid, state: Snapshot, scene: MapScene): void {
+  const { animation, hover } = scene;
   const units = new BoardUnits(grid, state, animation);
   for (const bot of state.bots) units.drawTrail(bot);
   if (hover) drawHoverCell(grid, hover);

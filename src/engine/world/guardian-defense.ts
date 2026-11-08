@@ -36,13 +36,7 @@ export function advanceCacheGuardians(world: WorldTurn): void {
 function advanceGuardian(turn: GuardianTurn): void {
   const { world, cache } = turn;
   const tick = world.context.tick;
-  const intruders = world.context.bots.filter((bot) => {
-    const withinTerritory = manhattanDistance(bot.position, cache.position) <= DEFENSE_RADIUS;
-    const inReach = withinTerritory || isWithinStrikeRange(cache, bot);
-    const active = !bot.disabled && !isSafeBase(world, bot.position);
-
-    return inReach && active;
-  });
+  const intruders = findGuardianIntruders(turn);
   const adjacent = intruders.find((bot) => isWithinStrikeRange(cache, bot));
   if (!adjacent) moveGuardian(turn, intruders);
   if (tick < cache.nextAttackTick) return;
@@ -53,6 +47,18 @@ function advanceGuardian(turn: GuardianTurn): void {
     return inRange && exposed;
   });
   if (victim) repelIntruder(turn, victim);
+}
+
+function findGuardianIntruders(turn: GuardianTurn): BotState[] {
+  const { world, cache } = turn;
+
+  return world.context.bots.filter((bot) => {
+    const withinTerritory = manhattanDistance(bot.position, cache.position) <= DEFENSE_RADIUS;
+    const inReach = withinTerritory || isWithinStrikeRange(cache, bot);
+    const active = !bot.disabled && !isSafeBase(world, bot.position);
+
+    return inReach && active;
+  });
 }
 
 function isWithinStrikeRange(cache: GuardianCache, bot: BotState): boolean {

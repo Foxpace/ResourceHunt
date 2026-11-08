@@ -60,23 +60,32 @@ export class TournamentView {
   private render(): void {
     if (!this.options) return;
 
-    const { rounds, winners } = this.tournament;
-    this.progress.textContent = this.describeProgress(this.options.winTarget);
+    this.renderProgress(this.options.winTarget);
+    this.renderSummary(this.options);
+    this.renderRoundOptions();
+  }
+
+  private renderProgress(winTarget: number): void {
+    const { rounds } = this.tournament;
+    this.progress.textContent = this.describeProgress(winTarget);
     this.stopButton.hidden = !this.tournament.running;
     this.stopButton.disabled = this.tournament.stopped;
     element("#tournament-empty").hidden = true;
     element("#round-explorer").hidden = !rounds.length;
     this.roundTrack.innerHTML = this.renderRoundTrack();
+  }
+
+  private renderSummary(tournamentOptions: TournamentOptions): void {
+    const { rounds, winners } = this.tournament;
     const mode = winners.length ? "tournament" : "in-progress";
     const options = {
       mode,
-      badges: this.options.badges,
+      badges: tournamentOptions.badges,
       hiddenColumns: this.hiddenColumns,
       colors: this.colors,
     } as const;
     const standings = summarizeTournament(rounds, options.badges);
     this.summary.innerHTML = rounds.length ? renderResults(standings, this.seed, options) : "";
-    this.renderRoundOptions();
   }
 
   private renderRoundOptions(): void {

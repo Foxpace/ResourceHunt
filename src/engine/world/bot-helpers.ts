@@ -105,6 +105,10 @@ export function getDefensiveAction(state: Observation): Action | undefined {
   );
   if (imminent) return escapeThreat(state);
 
+  return clearThreateningTrap(state) ?? avoidScavenger(state) ?? avoidGuardian(state);
+}
+
+function clearThreateningTrap(state: Observation): Action | undefined {
   const trap = state.world.traps.find((site) => {
     const belongsToRival = site.ownerId !== state.self.id;
     const sharesTile = samePosition(site, state.self.position);
@@ -114,12 +118,12 @@ export function getDefensiveAction(state: Observation): Action | undefined {
   const hasUnarmedTrap = trap !== undefined;
   const carryingCargo = state.self.inventory.length > 0;
   if (hasUnarmedTrap && carryingCargo) return { type: "clearTrap", targetId: trap.id };
+}
 
-  const droneEscape = avoidScavenger(state);
-  if (droneEscape) return droneEscape;
-
+function avoidGuardian(state: Observation): Action | undefined {
   const guardian = state.world.caches.find((cache) => canStrike(state, cache.id));
   const guardianInRange = guardian !== undefined;
+  const carryingCargo = state.self.inventory.length > 0;
   if (guardianInRange && carryingCargo) return escapeThreat(state, guardianPosition(guardian));
 }
 
@@ -233,12 +237,18 @@ export function getGuardianFightAction(state: Observation, targetId: string): Ac
 export function getCompetitiveAction(state: Observation): Action | undefined {
   if (!isReady(state)) return;
 
+  return getDepotAction(state) ?? getCacheAction(state) ?? getTrapAction(state);
+}
+
+function getDepotAction(state: Observation): Action | undefined {
   const repair = state.outposts.find((outpost) => canRepair(state, outpost.id));
   if (repair) return { type: "repair", targetId: repair.id };
 
   const sabotage = state.outposts.find((outpost) => canSabotage(state, outpost.id));
   if (sabotage) return { type: "sabotage", targetId: sabotage.id };
+}
 
+function getCacheAction(state: Observation): Action | undefined {
   const cache = state.world.caches.find((site) => canLootCache(state, site.id));
   if (cache) return { type: "lootCache", targetId: cache.id };
 
@@ -246,8 +256,6 @@ export function getCompetitiveAction(state: Observation): Action | undefined {
   const guardianInRange = guardian !== undefined;
   const inventoryEmpty = state.self.inventory.length === 0;
   if (guardianInRange && inventoryEmpty) return getGuardianFightAction(state, guardian.id);
-
-  return getTrapAction(state);
 }
 
 /** Trap a loaded rival's likely path to a bank, or the tile it is already using. */

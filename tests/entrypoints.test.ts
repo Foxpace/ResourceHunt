@@ -116,6 +116,29 @@ test("inspect preserves its input when given the same output path", async (conte
   assert.deepEqual(JSON.parse(numbered), JSON.parse(stdout));
 });
 
+test("CLI statistic selection prints only the requested counter", async () => {
+  // Given
+  const args = ["play", "--bots", "nearest", "--ticks", "1", "--stats", "gathered"];
+
+  // When
+  const { stdout } = await runCli(args);
+
+  // Then
+  assert.match(stdout, /\bgathered\b/);
+  assert.doesNotMatch(stdout, /\btilesWalked\b/);
+});
+
+test("CLI can suppress the statistics table", async () => {
+  // Given
+  const args = ["play", "--bots", "nearest", "--ticks", "1", "--stats", "none"];
+
+  // When
+  const { stdout } = await runCli(args);
+
+  // Then
+  assert.doesNotMatch(stdout, /\bgathered\b/);
+});
+
 test("bench accepts a maximum-length seed and rotates maps in groups", async () => {
   // Given
   const seed = "x".repeat(MAX_SEED_LENGTH);

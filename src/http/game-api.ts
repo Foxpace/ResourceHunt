@@ -80,6 +80,10 @@ class GameApi {
     const roundRequested = path === "/api/tournament/round" && request.method === "POST";
     if (roundRequested) return this.handleTournamentRound(request);
 
+    return this.routeSessionRequest(request, path);
+  }
+
+  private routeSessionRequest(request: Request, path: string): Promise<Response> | Response {
     const match = /^\/api\/games\/([a-f0-9-]+)(?:\/(step|replay))?$/.exec(path);
     if (!match) return json({ error: "Not found" }, 404);
 

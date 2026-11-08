@@ -60,12 +60,7 @@ export class Tournament {
     onChange: () => void,
   ): Promise<void> {
     if (this.running) return;
-    const controller = new AbortController();
-    this.runController = controller;
-    this.rounds.length = 0;
-    this.winners = [];
-    this.error = "";
-    this.stopped = false;
+    const controller = this.beginRun();
     try {
       await this.runRounds(request, options.winTarget, { onChange, signal: controller.signal });
     } catch (error) {
@@ -76,6 +71,17 @@ export class Tournament {
       const notify = !controller.signal.aborted || this.stopped;
       if (notify) onChange();
     }
+  }
+
+  private beginRun(): AbortController {
+    const controller = new AbortController();
+    this.runController = controller;
+    this.rounds.length = 0;
+    this.winners = [];
+    this.error = "";
+    this.stopped = false;
+
+    return controller;
   }
 
   private async runRounds(
@@ -95,10 +101,8 @@ export class Tournament {
       this.currentBiome = biome;
       run.onChange();
       if (run.signal.aborted) return;
-      const suffix = roundIndex < tournamentBiomes.length ? "" : `:${roundIndex + 1}`;
-      const seed = request.config.seed.slice(0, 200 - suffix.length) + suffix;
       const round = await this.client.tournamentRound(
-        { ...request, config: { ...request.config, biome, seed }, roundIndex },
+        createRoundRequest(request, { biome, roundIndex }),
         run.signal,
       );
       if (run.signal.aborted) return;
@@ -118,6 +122,22 @@ export class Tournament {
     this.stopped = false;
     this.runController?.abort();
   }
+}
+
+interface RoundSelection {
+  biome: Biome;
+  roundIndex: number;
+}
+
+function createRoundRequest(
+  request: TournamentSetup,
+  round: RoundSelection,
+): TournamentRoundRequest {
+  const { biome, roundIndex } = round;
+  const suffix = roundIndex < tournamentBiomes.length ? "" : `:${roundIndex + 1}`;
+  const seed = request.config.seed.slice(0, 200 - suffix.length) + suffix;
+
+  return { ...request, config: { ...request.config, biome, seed }, roundIndex };
 }
 
 function roundWinners(result: MatchResult, wins: Map<string, number>, target: number): string[] {

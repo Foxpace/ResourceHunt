@@ -139,6 +139,19 @@ function parseReplayMap(value: unknown, width: number, height: number): GameMap 
 export function parseReplay(input: unknown): Replay {
   const replay = cloneReplayEnvelope(input);
   const initial = replay.initial as RecordValue;
+  const { config, ...compatibility } = readInitialReplayConfig(initial);
+  initial.config = config;
+  const map = parseReplayMap(initial.map, config.width, config.height);
+  const validator = new ReplayFrameValidator(map, config, compatibility);
+
+  for (const frame of [initial, ...(replay.frames as unknown[])]) validator.validateFrame(frame);
+
+  normalizeReplayResult(replay, config, compatibility.legacyCompetition);
+
+  return replay as unknown as Replay;
+}
+
+function readInitialReplayConfig(initial: RecordValue) {
   if (!isRecord(initial.config)) rejectInvalidReplay();
 
   const legacy = initial.hotspots === undefined && initial.outposts === undefined;
@@ -149,18 +162,8 @@ export function parseReplay(input: unknown): Replay {
     ...(legacyWorld ? CLASSIC_WORLD_RULES : {}),
     ...(legacy ? { hotspotCount: 0, outpostCount: 0, stealing: false } : {}),
   });
-  initial.config = config;
-  const map = parseReplayMap(initial.map, config.width, config.height);
-  const validator = new ReplayFrameValidator(map, config, {
-    legacyCompetition: legacy,
-    legacyWorld,
-  });
 
-  for (const frame of [initial, ...(replay.frames as unknown[])]) validator.validateFrame(frame);
-
-  normalizeReplayResult(replay, config, legacy);
-
-  return replay as unknown as Replay;
+  return { config, legacyCompetition: legacy, legacyWorld };
 }
 
 function cloneReplayEnvelope(input: unknown): RecordValue {

@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { selectAwards } from "../competition/awards.ts";
 import { scoresAtTick, type TournamentReport } from "../competition/tournament.ts";
 import { parseReplay } from "../engine/replay.ts";
+import type { GameConfig, GameEvent } from "../engine/types.ts";
 import { integerFlag } from "./options.ts";
 import { badgeOptionsFromFlags, printBadges, printStandings } from "./results.ts";
 
@@ -105,14 +106,30 @@ function inspectReplay(data: unknown, flags: ReadonlyMap<string, string>) {
   const map = flags.has("map")
     ? renderTerminalMap(frame, getHazardMap(replay.initial.map, frame.world, tick))
     : undefined;
-  if (!flags.has("json")) {
-    console.log(`${config.biome} · tick ${tick}/${config.ticks}`);
-    if (map) console.log(map);
-    for (const event of frame.events) console.log(`  ${event.botId} · ${event.message}`);
-    printStandings(standings, flags);
-    if (badges) printBadges(badges);
-  }
-  return { config, tick, standings, badges, events: frame.events, map };
+  const inspection = { config, tick, standings, badges, events: frame.events, map };
+  printReplayInspection(inspection, flags);
+
+  return inspection;
+}
+
+interface ReplayInspection {
+  config: GameConfig;
+  tick: number;
+  standings: ReturnType<typeof matchRows>;
+  badges: ReturnType<typeof selectAwards> | undefined;
+  events: GameEvent[];
+  map: string | undefined;
+}
+
+function printReplayInspection(inspection: ReplayInspection, flags: ReadonlyMap<string, string>) {
+  if (flags.has("json")) return;
+
+  const { config, tick, standings, badges, events, map } = inspection;
+  console.log(`${config.biome} · tick ${tick}/${config.ticks}`);
+  if (map) console.log(map);
+  for (const event of events) console.log(`  ${event.botId} · ${event.message}`);
+  printStandings(standings, flags);
+  if (badges) printBadges(badges);
 }
 
 function filterBot<T extends { id: string }>(rows: T[], flags: ReadonlyMap<string, string>): T[] {

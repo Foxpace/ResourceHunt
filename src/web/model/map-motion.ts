@@ -34,6 +34,12 @@ export class MapMotion {
       this.snapshot?.config.biome === snapshot.config.biome;
     const continueTimeline = consecutive && sameMatch;
     this.previous = continueTimeline ? this.snapshot : undefined;
+    this.recordEffects(snapshot, now, continueTimeline);
+    this.snapshot = snapshot;
+    this.changedAt = now;
+  }
+
+  private recordEffects(snapshot: Snapshot, now: number, continueTimeline: boolean): void {
     const continuingEffects = continueTimeline
       ? this.effects.filter((effect) => now - effect.startedAt < 850)
       : [];
@@ -41,8 +47,6 @@ export class MapMotion {
       ...continuingEffects,
       ...snapshot.events.map((event) => ({ event, startedAt: now })),
     ].slice(-96);
-    this.snapshot = snapshot;
-    this.changedAt = now;
   }
 
   animation(now: number, reducedMotion = false): MapAnimation {

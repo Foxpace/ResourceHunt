@@ -147,13 +147,7 @@ function attackExposedBot(turn: WorldTurn, drone: ScavengerDrone): boolean {
   const attackCoolingDown = tick < (drone.nextAttackTick ?? 0);
   if (attackCoolingDown) return false;
 
-  const targets = turn.context.bots.filter((bot) => {
-    const exposed = isExposedBot(turn, bot);
-    const sharesDroneTile = samePosition(bot.position, drone.position);
-
-    return exposed && sharesDroneTile;
-  });
-  const victim = preferLoadedTargets(drone, targets)[0];
+  const victim = findDroneVictim(turn, drone);
   if (!victim) return false;
 
   drone.nextAttackTick = tick + 6;
@@ -169,6 +163,17 @@ function attackExposedBot(turn: WorldTurn, drone: ScavengerDrone): boolean {
   });
 
   return true;
+}
+
+function findDroneVictim(turn: WorldTurn, drone: ScavengerDrone): BotState | undefined {
+  const targets = turn.context.bots.filter((bot) => {
+    const exposed = isExposedBot(turn, bot);
+    const sharesDroneTile = samePosition(bot.position, drone.position);
+
+    return exposed && sharesDroneTile;
+  });
+
+  return preferLoadedTargets(drone, targets)[0];
 }
 
 function stealBotCargo(turn: WorldTurn, drone: ScavengerDrone, victim: BotState) {

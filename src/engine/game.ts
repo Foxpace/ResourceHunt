@@ -36,6 +36,7 @@ import {
   type GameMap,
   type MatchResult,
   type Replay,
+  type ResourceKind,
   type ResourcePile,
   type Snapshot,
   type Hotspot,
@@ -325,17 +326,20 @@ export class Game {
     this.statistics.get(bot.id)!.tilesWalked++;
     bot.position = destination;
     bot.travelRemaining = cost - 1;
+    this.resetContestedCaptures();
 
+    bot.lastAction = message;
+    this.world.afterMovement(this.createWorldContext(), bot);
+    this.depositResources(bot);
+  }
+
+  private resetContestedCaptures(): void {
     for (const post of this.outposts) {
       const capturingBotId = post.capturingBotId;
 
       const captureContested = !!capturingBotId && isContested(post, this.bots, capturingBotId);
       if (captureContested) this.resetBotCapture(capturingBotId);
     }
-
-    bot.lastAction = message;
-    this.world.afterMovement(this.createWorldContext(), bot);
-    this.depositResources(bot);
   }
 
   private depositResources(bot: BotState) {
@@ -407,6 +411,12 @@ export class Game {
       return;
     }
 
+    this.transferStolenResource(bot, victim, kind);
+    this.recordBotEvent(bot, "action", "steal");
+    this.depositResources(bot);
+  }
+
+  private transferStolenResource(bot: BotState, victim: BotState, kind: ResourceKind): void {
     victim.inventory.splice(victim.inventory.indexOf(kind), 1);
     bot.inventory.push(kind);
     bot.stolen++;
@@ -418,8 +428,6 @@ export class Game {
     victim.theftProtectedUntilTick = this.tick + THEFT_PROTECTION_TICKS;
     bot.lastAction = `Stole ${kind} from ${victim.name}`;
     victim.lastAction = `Lost ${kind} to ${bot.name}`;
-    this.recordBotEvent(bot, "action", "steal");
-    this.depositResources(bot);
   }
 
   result(): MatchResult {

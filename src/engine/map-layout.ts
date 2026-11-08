@@ -9,15 +9,7 @@ export function minimumMapSize(botCount: number, biome: Biome): number {
 }
 
 export function placeBases(config: GameConfig, botCount: number): Position[] {
-  const integerBotCount = Number.isInteger(botCount);
-  const validBotCount = integerBotCount ? botCount >= 1 && botCount <= MAX_BOTS : false;
-  if (!validBotCount) throw new Error(`Select between 1 and ${MAX_BOTS} bots`);
-
-  const minimum = minimumMapSize(botCount, config.biome);
-  if (Math.min(config.width, config.height) < minimum)
-    throw new Error(
-      `${botCount} bots on ${config.biome} need width and height of at least ${minimum} for balanced starts`,
-    );
+  validateBasePlacement(config, botCount);
 
   const centerX = (config.width - 1) / 2,
     centerY = (config.height - 1) / 2;
@@ -37,4 +29,16 @@ export function placeBases(config: GameConfig, botCount: number): Position[] {
       y: Math.round(centerY + dy * radius(centerY) * scale),
     };
   });
+}
+
+function validateBasePlacement(config: GameConfig, botCount: number): void {
+  const integerBotCount = Number.isInteger(botCount);
+  const validBotCount = integerBotCount ? botCount >= 1 && botCount <= MAX_BOTS : false;
+  if (!validBotCount) throw new Error(`Select between 1 and ${MAX_BOTS} bots`);
+
+  const minimum = minimumMapSize(botCount, config.biome);
+  if (Math.min(config.width, config.height) < minimum)
+    throw new Error(
+      `${botCount} bots on ${config.biome} need width and height of at least ${minimum} for balanced starts`,
+    );
 }

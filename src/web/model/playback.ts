@@ -221,6 +221,10 @@ export class Playback {
       return;
     }
 
+    await this.advanceLiveFrame();
+  }
+
+  private async advanceLiveFrame(): Promise<void> {
     const expectedSource = this.playbackSession.source;
     const snapshot = await this.playbackSession.advanceLiveSession();
     const isSelectedSourceUnchanged =
