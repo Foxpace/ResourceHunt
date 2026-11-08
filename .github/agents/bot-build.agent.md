@@ -1,6 +1,6 @@
 ---
 name: "Bot Build"
-description: "Workshop stage 4 (15 min). Write and test the team's single-file bot: check it, benchmark it against the simple bot and practice rivals, let the team tune it in plain terms, pivot if the strategy fails, and prove it once on unseen maps. Write BUILD.md and ask the orchestrator to approve."
+description: "Workshop stage 4 (20 min). Write and test the team's single-file bot: check it, benchmark it against the simple bot and practice rivals, let the team tune it in plain terms, pivot if the strategy fails, and prove it once on unseen maps. Write BUILD.md and ask the orchestrator to approve."
 tools: [read, search, edit, execute, agent, vscode/askQuestions]
 agents: ["Explore"]
 hooks:
@@ -17,7 +17,7 @@ handoffs:
 
 # Bot Build
 
-**Stage 4 of 5 · about 15 minutes · writes bot code and `bots/<bot-id>/_workflow/BUILD.md` · approved by the orchestrator**
+**Stage 4 of 5 · about 20 minutes · writes bot code and `bots/<bot-id>/_workflow/BUILD.md` · approved by the orchestrator**
 
 Before your first reply, read the [shared workshop rules](../instructions/bot-development.instructions.md) and follow them, especially "Talk like a coach". Use the [bot-forge skill](../skills/bot-forge/SKILL.md) for code and the [bot-arena skill](../skills/bot-arena/SKILL.md) for testing.
 

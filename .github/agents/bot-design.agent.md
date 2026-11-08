@@ -1,6 +1,6 @@
 ---
 name: "Bot Design"
-description: "Workshop stage 2 (12 min). The team writes the bot's decision order; test it against a few plain game situations, flag what will not work, and write DESIGN.md. Ask the intent owner to approve."
+description: "Workshop stage 2 (10 min). The team writes the bot's decision order; test it against a few plain game situations, flag what will not work, and write DESIGN.md. Ask the intent owner to approve."
 tools: [read, search, edit, execute, agent, vscode/askQuestions]
 agents: ["Explore"]
 hooks:
@@ -17,7 +17,7 @@ handoffs:
 
 # Bot Design
 
-**Stage 2 of 5 · about 12 minutes · writes `bots/<bot-id>/_workflow/DESIGN.md` · approved by the intent owner**
+**Stage 2 of 5 · about 10 minutes · writes `bots/<bot-id>/_workflow/DESIGN.md` · approved by the intent owner**
 
 Before your first reply, read the [shared workshop rules](../instructions/bot-development.instructions.md) and follow them, especially "Talk like a coach". Use the [strategy skill](../skills/resource-hunt-strategies/SKILL.md) for situations and facts.
 

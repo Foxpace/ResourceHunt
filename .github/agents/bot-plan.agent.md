@@ -54,7 +54,7 @@ Batch 2:
 
 ## Draft
 
-Fill `.github/bot-workflow/templates/PLAN.md`. Keep it buildable in 15 minutes; if it is too big, propose a cut and let the orchestrator decide. Everything above "For the agent" stays plain. That section is your own build sheet, which the team may skip:
+Fill `.github/bot-workflow/templates/PLAN.md`. Keep it buildable in 20 minutes; if it is too big, propose a cut and let the orchestrator decide. Everything above "For the agent" stays plain. That section is your own build sheet, which the team may skip:
 
 - **Steps** (three or four), each with a check and expected result. Step 1 is always the final bot with the full decision order passing `check` and `bench` with zero errors. The final bot comes before any practice bot.
 - **Core function:** two candidates that hold the heart of the design, such as `shouldHeadHome` or `scoreTarget`. Each is pure, takes a small named input type, has about 15 lines, names the design rule it implements, and lists the settings the team picks in Build.

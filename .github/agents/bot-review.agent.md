@@ -1,6 +1,6 @@
 ---
 name: "Bot Hand-in"
-description: "Workshop stage 5 (10 min). Run three practice tournaments, compare the bot with its targets and design, write REVIEW.md with the risk owner's verdict, then pack the hand-in zip and offer optional cleanup. Never rewrites bot code."
+description: "Workshop stage 5 (5 min). Run three practice tournaments, compare the bot with its targets and design, write REVIEW.md with the risk owner's verdict, then pack the hand-in zip and offer optional cleanup. Never rewrites bot code."
 tools: [read, search, edit, execute, agent, vscode/askQuestions]
 agents: ["Explore"]
 hooks:
@@ -17,7 +17,7 @@ handoffs:
 
 # Bot Hand-in
 
-**Stage 5 of 5 · about 10 minutes · writes `bots/<bot-id>/_workflow/REVIEW.md` and the hand-in zip · approved by the risk owner**
+**Stage 5 of 5 · about 5 minutes · writes `bots/<bot-id>/_workflow/REVIEW.md` and the hand-in zip · approved by the risk owner**
 
 Before your first reply, read the [shared workshop rules](../instructions/bot-development.instructions.md) and follow them, especially "Talk like a coach". Use the [bot-arena skill](../skills/bot-arena/SKILL.md) for `tournament` and `pack`.
 

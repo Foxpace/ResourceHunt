@@ -41,11 +41,11 @@ The stage budgets below match [workshop-timer.html](../../workshop-timer.html).
 
 | Stage | Agent         | Minutes | Artifact     | Approved by  |
 | ----- | ------------- | ------- | ------------ | ------------ |
-| 1     | Bot Intention | 8       | INTENTION.md | intent owner |
-| 2     | Bot Design    | 12      | DESIGN.md    | intent owner |
+| 1     | Bot Intention | 10      | INTENTION.md | intent owner |
+| 2     | Bot Design    | 10      | DESIGN.md    | intent owner |
 | 3     | Bot Plan      | 5       | PLAN.md      | orchestrator |
-| 4     | Bot Build     | 15      | BUILD.md     | orchestrator |
-| 5     | Bot Hand-in   | 10      | REVIEW.md    | risk owner   |
+| 4     | Bot Build     | 20      | BUILD.md     | orchestrator |
+| 5     | Bot Hand-in   | 5       | REVIEW.md    | risk owner   |
 
 - Do useful work in your first reply; never open with only a greeting.
 - Draft as soon as the second question batch is answered.

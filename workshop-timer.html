@@ -600,14 +600,14 @@
       const DEFAULT_PHASES = [
         {
           name: "Intention",
-          min: 8,
+          min: 10,
           agent: "Bot Intention",
           goal: "Say how your bot should play, in your own words. Pick its twist and a success target.",
           output: "<code>INTENTION.md</code> · intent owner",
         },
         {
           name: "Design",
-          min: 12,
+          min: 10,
           agent: "Bot Design",
           goal: "Write the bot’s decision order. Answer the tough game situations the agent throws at you.",
           output: "<code>DESIGN.md</code> · intent owner",
@@ -622,14 +622,14 @@
         },
         {
           name: "Build",
-          min: 15,
+          min: 20,
           agent: "Bot Build",
           goal: "Choose how your bot plays. The agent writes and tests it; you tune it, or pivot if it fails.",
           output: "bot code + <code>BUILD.md</code> · orchestrator",
         },
         {
           name: "Hand-in",
-          min: 10,
+          min: 5,
           agent: "Bot Hand-in",
           rotate: true,
           goal: "Watch three practice tournaments, give the verdict, and send your packed bot.",

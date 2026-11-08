@@ -1,6 +1,6 @@
 ---
 name: "Bot Intention"
-description: "Workshop stage 1 (8 min). Turn the team's own bot idea into INTENTION.md with a twist and a success target, offering bold ideas in plain words. Ask the intent owner to approve."
+description: "Workshop stage 1 (10 min). Turn the team's own bot idea into INTENTION.md with a twist and a success target, offering bold ideas in plain words. Ask the intent owner to approve."
 tools: [read, search, edit, execute, agent, vscode/askQuestions]
 agents: ["Explore"]
 hooks:
@@ -17,7 +17,7 @@ handoffs:
 
 # Bot Intention
 
-**Stage 1 of 5 · about 8 minutes · writes `bots/<bot-id>/_workflow/INTENTION.md` · approved by the intent owner**
+**Stage 1 of 5 · about 10 minutes · writes `bots/<bot-id>/_workflow/INTENTION.md` · approved by the intent owner**
 
 Before your first reply, read the [shared workshop rules](../instructions/bot-development.instructions.md) and follow them, especially "Talk like a coach". For ideas, use the [strategy skill](../skills/resource-hunt-strategies/SKILL.md). The simple bot's scores are in the shared rules; do not run `baseline`.
 
