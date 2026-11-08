@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Resource Hunt · Workshop timer</title>
+    <style>
+      :root {
+        --bg: #08090a;
+        --surface: #111314;
+        --line: #2c3133;
+        --track: #2a2f31;
+        --fg: #ffffff;
+        --muted: #c9cfd1;
+        --faint: #a3abae;
+        --orange: #fb7185;
+        --teal: #60a5fa;
+        --glow: #121516;
+        --veil: rgba(0, 0, 0, 0.55);
+        --ring: min(62vh, 40vw);
+      }
+      :root[data-theme="light"] {
+        --bg: #f7f6f2;
+        --surface: #ffffff;
+        --line: #cfccc5;
+        --track: #d9d6cf;
+        --fg: #0b0d0e;
+        --muted: #33393c;
+        --faint: #4f5659;
+        --orange: #be123c;
+        --teal: #1d4ed8;
+        --glow: #ffffff;
+        --veil: rgba(245, 244, 240, 0.6);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        color: var(--fg);
+        font-family:
+          "Inter",
+          "SF Pro Display",
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        height: auto;
+        min-height: 100%;
+        padding: 4vh 5vw 3vh;
+        gap: 4vh;
+        transition: background 1.2s ease;
+        background: radial-gradient(ellipse at 30% 55%, var(--glow) 0%, var(--bg) 60%);
+      }
+      code {
+        font-family: "SF Mono", ui-monospace, Menlo, monospace;
+        font-size: 0.9em;
+        color: var(--teal);
+      }
+
+      /* Header */
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        font-size: clamp(13px, 1.15vw, 18px);
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 500;
+      }
+      header b {
+        color: var(--fg);
+        font-weight: 600;
+      }
+      header b span {
+        color: var(--orange);
+      }
+      #total {
+        letter-spacing: 0.08em;
+        text-transform: none;
+        font-variant-numeric: tabular-nums;
+      }
+      #total strong {
+        color: var(--fg);
+        font-weight: 700;
+      }
+
+      /* Timeline: hairline segments with labels */
+      #timeline {
+        display: flex;
+        gap: 10px;
+      }
+      .seg {
+        cursor: pointer;
+        min-width: 0;
+      }
+      .seg .track {
+        height: 5px;
+        border-radius: 2px;
+        background: var(--track);
+        overflow: hidden;
+      }
+      .seg .fill {
+        height: 100%;
+        width: 0;
+        background: var(--orange);
+        transition: width 0.25s linear;
+      }
+      .seg .label {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 10px;
+        font-size: clamp(13px, 1.1vw, 18px);
+        font-weight: 500;
+        color: var(--faint);
+        white-space: nowrap;
+      }
+      .seg .label span:first-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .seg.done .fill {
+        width: 100%;
+        background: var(--teal);
+      }
+      .seg.done .label {
+        color: var(--muted);
+      }
+      .seg.current .label {
+        color: var(--fg);
+      }
+      .seg.current .label span:first-child {
+        color: var(--orange);
+        font-weight: 700;
+      }
+      .seg:hover .label {
+        color: var(--fg);
+      }
+
+      /* Main */
+      main {
+        flex: 1;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 6vw;
+        align-items: center;
+        min-height: min-content;
+      }
+
+      .ring {
+        position: relative;
+        width: var(--ring);
+        height: var(--ring);
+      }
+      .ring svg {
+        position: absolute;
+        inset: 0;
+        transform: rotate(-90deg);
+      }
+      .ring circle {
+        fill: none;
+        stroke-width: 3;
+      }
+      .ring .bg {
+        stroke: var(--track);
+      }
+      .ring .fg {
+        stroke: var(--orange);
+        stroke-linecap: round;
+        transition:
+          stroke-dashoffset 0.25s linear,
+          stroke 0.4s;
+      }
+      .ring.over .fg {
+        opacity: 0.6;
+      }
+      .ring .center {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+      #step {
+        font-size: calc(var(--ring) * 0.04);
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      #name {
+        margin: 0.5em 0 0;
+        font-size: calc(var(--ring) * 0.08);
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: var(--orange);
+      }
+      #clock {
+        font-size: calc(var(--ring) * 0.25);
+        font-weight: 400;
+        line-height: 1;
+        letter-spacing: -0.03em;
+        font-variant-numeric: tabular-nums;
+        margin: 0.06em 0 0.1em;
+        transition: color 0.4s;
+      }
+      #clock.paused {
+        color: var(--muted);
+      }
+      #clock.over {
+        color: var(--orange);
+      }
+      #state {
+        font-size: calc(var(--ring) * 0.04);
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--orange);
+        font-weight: 700;
+        height: 1.4em;
+      }
+      #next {
+        font-size: calc(var(--ring) * 0.045);
+        color: var(--muted);
+        font-weight: 500;
+        margin-top: 0.4em;
+      }
+
+      #info {
+        display: flex;
+        flex-direction: column;
+        gap: 3.6vh;
+        min-width: 0;
+        max-width: 40rem;
+        overflow-wrap: anywhere;
+      }
+      .item small {
+        display: block;
+        font-size: clamp(13px, 1.05vw, 17px);
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--faint);
+        font-weight: 600;
+        margin-bottom: 0.5em;
+      }
+      .item p {
+        margin: 0;
+        font-size: clamp(17px, 1.75vw, 30px);
+        line-height: 1.35;
+        font-weight: 500;
+        color: var(--fg);
+      }
+      #agent {
+        font-size: clamp(26px, 2.8vw, 48px) !important;
+        font-weight: 700 !important;
+      }
+      .hint {
+        border-left: 4px solid var(--orange);
+        padding-left: 1.2em;
+      }
+      .hint p strong {
+        color: var(--orange);
+        font-weight: 700;
+      }
+      .iterate {
+        font-size: clamp(15px, 1.3vw, 22px);
+        color: var(--muted);
+        font-weight: 500;
+      }
+
+      #rotate {
+        display: none;
+        align-items: center;
+        gap: 0.8em;
+        color: var(--orange);
+        font-size: clamp(16px, 1.5vw, 26px);
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+      #rotate b {
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        font-size: 0.75em;
+        font-weight: 700;
+        border: 2px solid var(--orange);
+        border-radius: 999px;
+        padding: 0.35em 0.9em;
+        white-space: nowrap;
+      }
+      #rotate.show {
+        display: flex;
+        flex-wrap: wrap;
+        row-gap: 0.5em;
+      }
+      #rotate span {
+        white-space: nowrap;
+      }
+
+      /* Controls fade out when the mouse is idle */
+      footer {
+        display: flex;
+        flex-wrap: wrap;
+        flex-shrink: 0;
+        gap: 6px;
+        align-items: center;
+        transition: opacity 0.6s ease;
+      }
+      body.idle footer {
+        opacity: 0;
+      }
+      body.idle {
+        cursor: none;
+      }
+      footer .spacer {
+        flex: 1;
+      }
+      footer .keys {
+        color: var(--faint);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        margin-right: 8px;
+      }
+      button {
+        font: inherit;
+        flex-shrink: 0;
+        font-size: 14px;
+        color: var(--muted);
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        padding: 0.55em 1.1em;
+        cursor: pointer;
+        transition:
+          color 0.2s,
+          border-color 0.2s,
+          background 0.2s;
+      }
+      button:hover {
+        color: var(--fg);
+        border-color: var(--line);
+      }
+      button.primary {
+        color: var(--bg);
+        background: var(--fg);
+        font-weight: 600;
+        min-width: 6.5em;
+      }
+      button.primary:hover {
+        color: var(--bg);
+        opacity: 0.85;
+      }
+
+      /* Settings */
+      #backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: var(--veil);
+        backdrop-filter: blur(6px);
+        z-index: 1;
+      }
+      #settings {
+        display: none;
+        position: fixed;
+        top: 10vh;
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(720px, 90vw);
+        max-height: 80vh;
+        overflow: auto;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 28px 32px;
+        z-index: 2;
+        font-size: 15px;
+      }
+      body.settings #settings,
+      body.settings #backdrop {
+        display: block;
+      }
+      body.settings footer {
+        opacity: 1;
+      }
+      body.settings {
+        cursor: auto;
+      }
+      #settings h2 {
+        margin: 0 0 18px;
+        font-size: 13px;
+        letter-spacing: 0.28em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 500;
+      }
+      #settings table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-bottom: 18px;
+      }
+      #settings td {
+        padding: 9px 4px;
+        border-bottom: 1px solid var(--line);
+      }
+      #settings td:nth-child(2) {
+        color: var(--faint);
+      }
+      #settings td:last-child {
+        text-align: right;
+        color: var(--faint);
+      }
+      #settings .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin: 14px 0;
+        flex-wrap: wrap;
+        color: var(--muted);
+      }
+      #settings input[type="number"] {
+        font: inherit;
+        color: var(--fg);
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.35em 0.6em;
+        width: 4.5em;
+        text-align: right;
+      }
+      #settings input:focus {
+        outline: none;
+        border-color: var(--orange);
+      }
+      #settings input[type="checkbox"] {
+        accent-color: var(--orange);
+      }
+      #settings button {
+        border-color: var(--line);
+      }
+
+      body.flash #rotate b {
+        animation: flash 1.2s ease 1;
+      }
+      @keyframes flash {
+        50% {
+          opacity: 0.75;
+        }
+      }
+      @media (max-height: 800px) {
+        body {
+          gap: 3vh;
+        }
+        #info {
+          gap: 2vh;
+        }
+        .item p {
+          font-size: 20px;
+        }
+        #agent {
+          font-size: 28px !important;
+        }
+        .iterate {
+          font-size: 16px;
+        }
+      }
+      @media (max-width: 760px) {
+        :root {
+          --ring: min(40vh, 70vw);
+        }
+        header {
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+        main {
+          grid-template-columns: minmax(0, 1fr);
+          justify-items: center;
+          gap: 24px;
+        }
+        #info {
+          width: 100%;
+        }
+        .seg .label {
+          flex-wrap: wrap;
+          gap: 4px;
+        }
+        #rotate span {
+          white-space: normal;
+        }
+        footer .keys {
+          flex-basis: 100%;
+          order: 1;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        body.flash #rotate b {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <b>Resource Hunt <span>·</span> Bot workshop</b>
+      <div id="total"></div>
+    </header>
+
+    <div id="timeline"></div>
+
+    <main>
+      <section class="ring" id="ring">
+        <svg viewBox="0 0 200 200">
+          <circle class="bg" cx="100" cy="100" r="96" />
+          <circle class="fg" id="arc" cx="100" cy="100" r="96" />
+        </svg>
+        <div class="center">
+          <div id="step"></div>
+          <div id="name"></div>
+          <div id="clock">00:00</div>
+          <div id="state"></div>
+          <div id="next"></div>
+        </div>
+      </section>
+      <section id="info">
+        <div id="rotate"><b>Rotate roles</b><span>intent → orchestrator → risk → intent</span></div>
+        <div class="item">
+          <small>Open agent</small>
+          <p id="agent"></p>
+        </div>
+        <div class="item">
+          <small>What you do</small>
+          <p id="goal"></p>
+        </div>
+        <div class="item">
+          <small>You produce · approved by</small>
+          <p id="output"></p>
+        </div>
+        <div class="item hint">
+          <small>Stuck?</small>
+          <p id="hint"></p>
+        </div>
+        <div class="iterate">
+          Done early? Ask the agent for another rival bot, or go back and iterate.
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <button id="start" class="primary">Start</button>
+      <button id="prev">← Previous</button>
+      <button id="nextBtn">Next →</button>
+      <button id="minus">− 1 min</button>
+      <button id="plus">+ 1 min</button>
+      <button id="restart">Restart phase</button>
+      <span class="spacer"></span>
+      <span class="keys"
+        >Space start/pause · ← → phase · + − minute · F fullscreen · T theme · S settings</span
+      >
+      <button id="theme"></button>
+      <button id="openSettings">Settings</button>
+    </footer>
+
+    <div id="backdrop"></div>
+    <div id="settings">
+      <h2>Settings</h2>
+      <table id="durations"></table>
+      <div class="row">
+        Remaining time of current phase:
+        <input id="fixMin" type="number" min="0" step="1" /> min
+        <input id="fixSec" type="number" min="0" max="59" step="1" /> s
+        <button id="applyFix">Apply</button>
+      </div>
+      <div class="row">
+        <label
+          ><input id="auto" type="checkbox" /> Move to the next phase automatically when time is
+          up</label
+        >
+      </div>
+      <div class="row">
+        <button id="resetAll">Reset whole workshop</button>
+        <span style="flex: 1"></span>
+        <button id="closeSettings" class="primary">Done</button>
+      </div>
+    </div>
+
+    <script>
+      const GUIDE =
+        "Say <strong>guide us</strong> and the agent walks every role through the stage. Out of time? Say <strong>wrap up</strong> and it drafts the artifact now.";
+      // Keep names and minutes in sync with .github/agents/*.agent.md; guard.test.mjs checks them.
+      const DEFAULT_PHASES = [
+        {
+          name: "Intention",
+          min: 8,
+          agent: "Bot Intention",
+          goal: "Say how your bot should play, in your own words. Pick its twist and a success target.",
+          output: "<code>INTENTION.md</code> · intent owner",
+        },
+        {
+          name: "Design",
+          min: 12,
+          agent: "Bot Design",
+          goal: "Write the bot’s decision order. Answer the tough game situations the agent throws at you.",
+          output: "<code>DESIGN.md</code> · intent owner",
+        },
+        {
+          name: "Plan",
+          min: 5,
+          agent: "Bot Plan",
+          rotate: true,
+          goal: "Judge the agent’s plan. Cut what you don’t need and pick the risk to test first.",
+          output: "<code>PLAN.md</code> · orchestrator",
+        },
+        {
+          name: "Build",
+          min: 15,
+          agent: "Bot Build",
+          goal: "Choose how your bot plays. The agent writes and tests it; you tune it, or pivot if it fails.",
+          output: "bot code + <code>BUILD.md</code> · orchestrator",
+        },
+        {
+          name: "Hand-in",
+          min: 10,
+          agent: "Bot Hand-in",
+          rotate: true,
+          goal: "Watch three practice tournaments, give the verdict, and send your packed bot.",
+          output:
+            "<code>REVIEW.md</code> · risk owner · send <code>results/&lt;id&gt;-handin.zip</code>",
+        },
+      ];
+
+      const CIRCUMFERENCE = 2 * Math.PI * 96;
+      const timerElement = (id) => document.getElementById(id);
+
+      function formatDuration(milliseconds) {
+        const totalSeconds = Math.round(Math.abs(milliseconds) / 1000);
+        const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+        const seconds = String(totalSeconds % 60).padStart(2, "0");
+        return `${minutes}:${seconds}`;
+      }
+
+      let timerState = createTimerState();
+
+      function createTimerState() {
+        return {
+          durations: DEFAULT_PHASES.map((phase) => phase.min),
+          index: 0,
+          remaining: DEFAULT_PHASES[0].min * 60000,
+          endsAt: null,
+          auto: true,
+        };
+      }
+      const isRunning = () => timerState.endsAt !== null;
+      const remainingMilliseconds = () =>
+        isRunning() ? timerState.endsAt - Date.now() : timerState.remaining;
+      const phaseDurationMilliseconds = (phaseIndex) => timerState.durations[phaseIndex] * 60000;
+      const phaseProgress = (phaseIndex) =>
+        Math.min(
+          1,
+          Math.max(0, 1 - remainingMilliseconds() / phaseDurationMilliseconds(phaseIndex)),
+        );
+
+      function setRemaining(milliseconds) {
+        if (isRunning()) timerState.endsAt = Date.now() + milliseconds;
+        else timerState.remaining = milliseconds;
+        renderTimer();
+      }
+      function selectPhase(phaseIndex) {
+        const beforeFirstPhase = phaseIndex < 0;
+        const pastLastPhase = phaseIndex >= DEFAULT_PHASES.length;
+        if (beforeFirstPhase || pastLastPhase) return;
+
+        const wasRunning = isRunning();
+        timerState.index = phaseIndex;
+        timerState.remaining = phaseDurationMilliseconds(phaseIndex);
+        timerState.endsAt = wasRunning ? Date.now() + timerState.remaining : null;
+        renderTimer();
+        if (DEFAULT_PHASES[phaseIndex].rotate) flashRoleRotation();
+      }
+      function toggleTimer() {
+        if (isRunning()) {
+          timerState.remaining = remainingMilliseconds();
+          timerState.endsAt = null;
+        } else {
+          timerState.endsAt = Date.now() + timerState.remaining;
+        }
+        renderTimer();
+      }
+      function flashRoleRotation() {
+        document.body.classList.remove("flash");
+        void document.body.offsetWidth;
+        document.body.classList.add("flash");
+      }
+
+      function rebuildTimeline() {
+        const timeline = timerElement("timeline");
+        timeline.innerHTML = "";
+        DEFAULT_PHASES.forEach((phase, phaseIndex) => {
+          const segment = document.createElement("div");
+          const minutes = timerState.durations[phaseIndex];
+          segment.className = "seg";
+          segment.style.flex = minutes || 1;
+          segment.title = "Jump to this phase";
+          segment.innerHTML = `<div class="track"><div class="fill"></div></div>
+      <div class="label"><span>${phase.name}</span><span>${minutes}′</span></div>`;
+          segment.onclick = () => selectPhase(phaseIndex);
+          timeline.appendChild(segment);
+        });
+      }
+
+      function renderTimer() {
+        const phaseIndex = timerState.index;
+        const phase = DEFAULT_PHASES[phaseIndex];
+        const remaining = remainingMilliseconds();
+
+        timerElement("step").textContent = `Phase ${phaseIndex + 1} / ${DEFAULT_PHASES.length}`;
+        timerElement("name").textContent = phase.name;
+        renderClock(phaseIndex, remaining);
+        renderPhaseDetails(phase, DEFAULT_PHASES[phaseIndex + 1]);
+        renderTotalTime(phaseIndex, remaining);
+        renderTimelineProgress(phaseIndex);
+        document.title = `${formatDuration(remaining)} · ${phase.name} · Resource Hunt`;
+      }
+
+      function renderClock(phaseIndex, remaining) {
+        const overtime = remaining < 0;
+        const running = isRunning();
+        const clock = timerElement("clock");
+        clock.textContent = (overtime ? "+" : "") + formatDuration(remaining);
+        clock.className = overtime ? "over" : running ? "" : "paused";
+        timerElement("state").textContent = overtime ? "Over time" : running ? "" : "Paused";
+        timerElement("arc").style.strokeDashoffset = CIRCUMFERENCE * phaseProgress(phaseIndex);
+        timerElement("ring").classList.toggle("over", overtime);
+      }
+
+      function renderPhaseDetails(phase, nextPhase) {
+        timerElement("agent").textContent = phase.agent;
+        timerElement("goal").innerHTML = phase.goal;
+        timerElement("output").innerHTML = phase.output;
+        timerElement("hint").innerHTML = GUIDE;
+        timerElement("rotate").classList.toggle("show", !!phase.rotate);
+        timerElement("next").textContent = nextPhase
+          ? `Next · ${nextPhase.name}${nextPhase.rotate ? " · rotate roles" : ""}`
+          : "Next · hand in your bot";
+        timerElement("start").textContent = isRunning() ? "Pause" : "Start";
+      }
+
+      function renderTotalTime(phaseIndex, remaining) {
+        const laterMinutes = timerState.durations
+          .slice(phaseIndex + 1)
+          .reduce((total, minutes) => total + minutes, 0);
+        const totalMinutes = timerState.durations.reduce((total, minutes) => total + minutes, 0);
+        const workshopTimeLeft = Math.max(0, remaining) + laterMinutes * 60000;
+        timerElement("total").innerHTML =
+          `<strong>${formatDuration(workshopTimeLeft)}</strong> left of ${totalMinutes} min`;
+      }
+
+      function renderTimelineProgress(activePhaseIndex) {
+        [...timerElement("timeline").children].forEach((segment, phaseIndex) => {
+          const completed = phaseIndex < activePhaseIndex;
+          const active = phaseIndex === activePhaseIndex;
+          segment.className = "seg" + (completed ? " done" : active ? " current" : "");
+          segment.querySelector(".fill").style.width = active
+            ? `${phaseProgress(phaseIndex) * 100}%`
+            : "";
+        });
+      }
+
+      function updateTimer() {
+        const phaseFinished = isRunning() && remainingMilliseconds() <= 0;
+        const autoAdvanceEnabled = Boolean(timerState.auto);
+        const hasNextPhase = timerState.index < DEFAULT_PHASES.length - 1;
+        if (phaseFinished && autoAdvanceEnabled && hasNextPhase) {
+          const overtime = -remainingMilliseconds();
+          timerState.index += 1;
+          timerState.endsAt = Date.now() + phaseDurationMilliseconds(timerState.index) - overtime;
+          if (DEFAULT_PHASES[timerState.index].rotate) flashRoleRotation();
+        }
+        renderTimer();
+      }
+
+      function renderSettings() {
+        const durationTable = timerElement("durations");
+        durationTable.innerHTML = DEFAULT_PHASES.map(
+          (phase, phaseIndex) =>
+            `<tr><td>${phaseIndex + 1}. ${phase.name}</td><td>${phase.agent}</td>
+     <td><input type="number" min="1" step="1" data-i="${phaseIndex}" value="${timerState.durations[phaseIndex]}" /> min</td></tr>`,
+        ).join("");
+        durationTable.querySelectorAll("input").forEach((input) => {
+          input.onchange = () => updatePhaseDuration(input);
+        });
+
+        const remaining = Math.max(0, remainingMilliseconds());
+        timerElement("fixMin").value = Math.floor(remaining / 60000);
+        timerElement("fixSec").value = Math.floor(remaining / 1000) % 60;
+        timerElement("auto").checked = timerState.auto;
+      }
+
+      function updatePhaseDuration(input) {
+        const phaseIndex = Number(input.dataset.i);
+        const minutes = Math.max(1, Math.round(Number(input.value) || 1));
+        const durationChange = (minutes - timerState.durations[phaseIndex]) * 60000;
+        timerState.durations[phaseIndex] = minutes;
+        if (phaseIndex === timerState.index) setRemaining(remainingMilliseconds() + durationChange);
+
+        rebuildTimeline();
+        renderTimer();
+      }
+
+      const openSettings = () => {
+        renderSettings();
+        document.body.classList.add("settings");
+      };
+      const closeSettings = () => document.body.classList.remove("settings");
+
+      timerElement("arc").style.strokeDasharray = CIRCUMFERENCE;
+      timerElement("start").onclick = toggleTimer;
+      timerElement("prev").onclick = () => selectPhase(timerState.index - 1);
+      timerElement("nextBtn").onclick = () => selectPhase(timerState.index + 1);
+      timerElement("plus").onclick = () => setRemaining(remainingMilliseconds() + 60000);
+      timerElement("minus").onclick = () => setRemaining(remainingMilliseconds() - 60000);
+      timerElement("restart").onclick = () =>
+        setRemaining(phaseDurationMilliseconds(timerState.index));
+      timerElement("openSettings").onclick = openSettings;
+      timerElement("closeSettings").onclick = closeSettings;
+      timerElement("backdrop").onclick = closeSettings;
+      timerElement("applyFix").onclick = () => {
+        const minutes = Number(timerElement("fixMin").value) || 0;
+        const seconds = Number(timerElement("fixSec").value) || 0;
+        setRemaining((minutes * 60 + seconds) * 1000);
+      };
+      timerElement("auto").onchange = () => {
+        timerState.auto = timerElement("auto").checked;
+      };
+      timerElement("resetAll").onclick = () => {
+        if (!confirm("Reset all phases and durations?")) return;
+        timerState = createTimerState();
+        rebuildTimeline();
+        renderSettings();
+        renderTimer();
+      };
+
+      document.addEventListener("keydown", (event) => {
+        if (event.target.tagName === "INPUT") return;
+
+        const { key } = event;
+        const plusPressed = key === "+";
+        const equalsPressed = key === "=";
+        if (key === " ") {
+          event.preventDefault();
+          toggleTimer();
+        } else if (key === "ArrowRight") selectPhase(timerState.index + 1);
+        else if (key === "ArrowLeft") selectPhase(timerState.index - 1);
+        else if (plusPressed || equalsPressed) setRemaining(remainingMilliseconds() + 60000);
+        else if (key === "-") setRemaining(remainingMilliseconds() - 60000);
+        else if (key.toLowerCase() === "f")
+          document.fullscreenElement
+            ? document.exitFullscreen()
+            : document.documentElement.requestFullscreen();
+        else if (key.toLowerCase() === "s") openSettings();
+        else if (key.toLowerCase() === "t") toggleTheme();
+        else if (key === "Escape") closeSettings();
+      });
+
+      function applyTheme(theme) {
+        document.documentElement.dataset.theme = theme;
+        timerElement("theme").textContent = theme === "light" ? "Dark" : "Light";
+      }
+      function toggleTheme() {
+        const nextTheme = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+        applyTheme(nextTheme);
+      }
+      applyTheme(matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+      timerElement("theme").onclick = toggleTheme;
+
+      // Hide the controls and cursor after three idle seconds, so the projector shows only the timer.
+      let idleTimer;
+      const showTimerControls = () => {
+        document.body.classList.remove("idle");
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => document.body.classList.add("idle"), 3000);
+      };
+      ["mousemove", "mousedown", "keydown"].forEach((eventName) =>
+        document.addEventListener(eventName, showTimerControls),
+      );
+      showTimerControls();
+
+      rebuildTimeline();
+      renderTimer();
+      setInterval(updateTimer, 250);
+    </script>
+  </body>
+</html>
