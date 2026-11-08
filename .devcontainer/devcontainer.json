@@ -4,6 +4,8 @@
     "dockerfile": "../Dockerfile",
     "context": ".."
   },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/ResourceHunt,type=bind",
+  "workspaceFolder": "/workspaces/ResourceHunt",
   "containerUser": "node",
   "remoteUser": "node",
   "runArgs": ["--cap-drop=ALL", "--security-opt=no-new-privileges:true"],

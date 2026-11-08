@@ -550,10 +550,14 @@ for (const { name, source } of agentSources()) {
   });
 }
 
+function timerPhases() {
+  const timer = readFileSync(join(ROOT, "workshop-timer.html"), "utf8");
+  return [...timer.matchAll(/min: (\d+),\s*agent: ["'](Bot [^"']+)["']/g)];
+}
+
 test("the workshop timer and the agents agree on names and minutes", () => {
   // Given
-  const timer = readFileSync(join(ROOT, "workshop-timer.html"), "utf8");
-  const phases = [...timer.matchAll(/min: (\d+),\s*agent: ["'](Bot [^"']+)["']/g)];
+  const phases = timerPhases();
   const agents = agentSources().map(({ source }) => source);
 
   // When
@@ -568,4 +572,22 @@ test("the workshop timer and the agents agree on names and minutes", () => {
   // Then
   assert.equal(phases.length, Object.keys(STAGES).length);
   assert.equal(matched.length, phases.length);
+});
+
+test("the workshop timeline matches the timer from 0:00", () => {
+  // Given
+  const guide = readFileSync(join(ROOT, "WORKSHOP.md"), "utf8");
+  const rows = [...guide.matchAll(/^\| 0:(\d\d)–0:(\d\d) \|[^|]+\| ([^|]+)\|/gm)];
+
+  // When
+  let elapsed = 0;
+  const expected = timerPhases().map(([, minutes, agent]) => {
+    const start = elapsed;
+    elapsed += Number(minutes);
+    return [start, elapsed, `**${agent}**`];
+  });
+  const actual = rows.map(([, from, to, agent]) => [Number(from), Number(to), agent.trim()]);
+
+  // Then
+  assert.deepEqual(actual, expected);
 });

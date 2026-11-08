@@ -10,6 +10,7 @@ import {
 } from "../src/runtime/bots.ts";
 import { runBenchmark } from "../src/runtime/benchmark.ts";
 import { parseArguments, configFromFlags } from "../src/cli/options.ts";
+import { startServer } from "../src/server.ts";
 import { createObservation } from "./helpers/sdk-fixtures.ts";
 import {
   assertBenchmarkRotation,
@@ -266,6 +267,25 @@ test("the CLI exits with code one for invalid configuration", async () => {
   // Then
   await assert.rejects(execution, { code: 1 });
 });
+
+for (const [description, bindAddress, expected] of [
+  ["defaults to loopback", undefined, "127.0.0.1"],
+  ["can bind to all IPv4 interfaces", "0.0.0.0", "0.0.0.0"],
+] as const) {
+  test(`the HTTP server ${description}`, async (context) => {
+    // Given
+    const ephemeralPort = 0;
+
+    // When
+    const app = await startServer(ephemeralPort, false, bindAddress);
+    context.after(() => app.dispose());
+
+    // Then
+    const address = app.server.address();
+    assert.ok(address && typeof address !== "string");
+    assert.equal(address.address, expected);
+  });
+}
 
 for (const asset of [
   { path: "/", contentType: "text/html", text: "<title>Resource Hunt</title>", minimumLength: 0 },

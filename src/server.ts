@@ -1,5 +1,6 @@
 import { createServer, type Server, type ServerResponse, type IncomingMessage } from "node:http";
 import { once } from "node:events";
+import type { ListenOptions } from "node:net";
 import { createGameApi } from "./http/game-api.ts";
 import { createWebAssets } from "./http/web-assets.ts";
 import { isMainModule } from "./runtime/entrypoint.ts";
@@ -58,13 +59,17 @@ async function readRequestBody(request: IncomingMessage): Promise<Buffer<ArrayBu
   return Buffer.concat(chunks);
 }
 
-export async function startServer(port = Number(process.env.PORT ?? 3000), watch = false) {
+export async function startServer(
+  port = Number(process.env.PORT ?? 3000),
+  watch = false,
+  bindAddress = LOOPBACK_ADDRESS,
+) {
   const assets = await createWebAssets(watch);
   const api = createGameApi();
   const server = createServer(async (incoming, outgoing) => {
     await handleHttpRequest(incoming, outgoing, { api, assets });
   });
-  await listenServer(server, port, { api, assets });
+  await listenServer(server, { port, host: bindAddress }, { api, assets });
 
   const address = server.address();
 
@@ -79,7 +84,11 @@ export async function startServer(port = Number(process.env.PORT ?? 3000), watch
 }
 
 if (isMainModule(import.meta.url)) {
-  const app = await startServer(undefined, process.argv.includes("--watch"));
+  const app = await startServer(
+    undefined,
+    process.argv.includes("--watch"),
+    process.env.RESOURCE_HUNT_BIND_ADDRESS || undefined,
+  );
   console.log(`Resource hunt → http://${LOOPBACK_ADDRESS}:${app.port}`);
   const shutdown = async () => {
     await app.dispose();
@@ -169,11 +178,15 @@ async function serveWebAsset(request: Request, assets: WebAssets, path: string):
     : Response.json({ error: "Not found" }, { status: 404 });
 }
 
-async function listenServer(server: Server, port: number, resources: HttpResources): Promise<void> {
+async function listenServer(
+  server: Server,
+  options: ListenOptions,
+  resources: HttpResources,
+): Promise<void> {
   const { api, assets } = resources;
 
   try {
-    server.listen(port, LOOPBACK_ADDRESS);
+    server.listen(options);
     await once(server, "listening");
   } catch (error) {
     api.dispose();
