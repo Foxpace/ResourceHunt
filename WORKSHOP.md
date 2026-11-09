@@ -32,6 +32,8 @@ Run `docker info` in the terminal you will use for the checkout. It should show 
 2. Run `podman info` and check that it succeeds. If you installed Podman on Windows, use PowerShell and a Windows checkout for the workshop.
 3. In VS Code, open **Preferences: Open User Settings (JSON)** and set `dev.containers.dockerPath` to `podman`. If VS Code cannot find it, use the full path to the Podman executable. See [VS Code's Podman setup](https://code.visualstudio.com/remote/advancedcontainers/docker-options#_podman).
 
+If VS Code reports `Permission denied` under `/vscode/vscode-server` with an existing Podman cache, set `"dev.containers.cacheVolume": false` in VS Code User Settings and run **Dev Containers: Rebuild Container**. VS Code will install its server inside the rebuilt container instead of using the shared cache.
+
 #### Open the workshop in a container
 
 1. Clone and open the repository in the terminal where you verified Docker or Podman.
@@ -50,6 +52,42 @@ Run `docker info` in the terminal you will use for the checkout. It should show 
 To leave, choose **Dev Containers: Reopen Folder Locally**. Bot files and hand-in ZIPs stay in the checkout. Dependencies stay in a container volume.
 
 The [Dockerfile](Dockerfile) pins the Node 24 Bookworm image for Intel/AMD and Apple Silicon. After updating the image pin, choose **Dev Containers: Rebuild Container**.
+
+#### Fix a Yarn certificate error on Windows
+
+If `yarn install --immutable` fails with `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, an antivirus or workplace proxy may be inspecting HTTPS. Windows may trust the certificate it uses while the Linux container has a separate trust store. Keep the dev container running and open PowerShell on Windows. Run these commands with `docker`, or replace `docker` with `podman` if you used Podman to open the workspace.
+
+1. List the running dev containers and enter the ID for Resource Hunt. Check the issuer of the certificate presented to the container.
+
+   ```powershell
+   docker ps --filter label=devcontainer.local_folder
+   $containerId = Read-Host 'Resource Hunt container ID'
+   docker exec $containerId sh -c 'openssl s_client -connect repo.yarnpkg.com:443 -servername repo.yarnpkg.com </dev/null 2>/dev/null | openssl x509 -noout -issuer'
+   ```
+
+2. Find the matching root certificate in the Windows trusted root stores. For Avast, look for `Avast Web/Mail Shield Root`. Use the root for the antivirus or proxy you recognize, and check with your IT team if you are unsure which one to use.
+
+   ```powershell
+   Get-ChildItem Cert:\CurrentUser\Root, Cert:\LocalMachine\Root |
+     Format-Table Subject, Thumbprint, NotAfter -AutoSize
+   $thumbprint = Read-Host 'Thumbprint of the trusted root certificate'
+   $certificate = Get-Item "Cert:\LocalMachine\Root\$thumbprint" -ErrorAction SilentlyContinue
+   if (-not $certificate) { $certificate = Get-Item "Cert:\CurrentUser\Root\$thumbprint" -ErrorAction Stop }
+   ```
+
+3. Copy the public root certificate into the container and retry Yarn with Node's system trust store enabled.
+
+   ```powershell
+   @(
+     '-----BEGIN CERTIFICATE-----'
+     [Convert]::ToBase64String($certificate.RawData, 'InsertLineBreaks')
+     '-----END CERTIFICATE-----'
+   ) | docker exec -i --user root $containerId sh -c 'tr -d "\r" > /usr/local/share/ca-certificates/workshop-https-root.crt && update-ca-certificates'
+
+   docker exec --user node --env NODE_USE_SYSTEM_CA=1 $containerId yarn install --immutable
+   ```
+
+After the install succeeds, continue with the [preflight](#preflight) in the VS Code terminal. The certificate is stored in the current container. Repeat these steps with the new container ID if you rebuild and see the same error. See [Docker's guide to CA certificates](https://docs.docker.com/engine/network/ca-certs/) and [Node's system CA documentation](https://nodejs.org/learn/http/enterprise-network-configuration).
 
 ### Native Node
 
